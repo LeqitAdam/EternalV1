@@ -50,7 +50,8 @@ public final class PunishmentService {
                 expires,
                 true,
                 null, null, null, null,
-                null, null, null
+                null, null, null,
+                null, null
         );
 
         long id = storage.insertPunishment(draft);
@@ -59,7 +60,8 @@ public final class PunishmentService {
                 draft.issuerUuid(), draft.issuerName(), draft.reasonId(), draft.reasonLabel(),
                 draft.publicMessage(), draft.issuedAt(), draft.expiresAt(), true,
                 null, null, null, null,
-                null, null, null
+                null, null, null,
+                null, null
         );
     }
 

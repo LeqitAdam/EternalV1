@@ -6,7 +6,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatButtonModule } from '@angular/material/button';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
-import { PlayerLookup, Punishment, Report } from '../../core/models';
+import { PlayerLookup, Punishment, Report, UnbanAppeal } from '../../core/models';
 import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
 
 /** EU date format that matches the in-game pattern (yyyy-MM-dd HH:mm). */
@@ -78,6 +78,37 @@ type HistoryRow = {
           <div *ngIf="d.activeMute" class="p-3 bg-orange-900/30 border border-orange-700/40 rounded">
             <strong class="text-orange-300">Aktiver Mute #{{ d.activeMute.id }}</strong>:
             {{ d.activeMute.reasonLabel }}
+          </div>
+        </div>
+      </mat-card>
+
+      <!-- Appeals section: visible to staff inspecting a player. Shows
+           every appeal filed by that player + the decision message. -->
+      <mat-card class="p-6 mb-4" *ngIf="d.appeals?.length">
+        <h2 class="text-xl font-semibold mb-4">Entbannungsanträge</h2>
+        <div class="space-y-3">
+          <div *ngFor="let a of d.appeals"
+               class="rounded-lg border border-ink-700/40 bg-ink-800/30 p-4">
+            <div class="flex items-center gap-3 mb-2">
+              <span class="font-mono text-ink-300">#{{ a.id }}</span>
+              <span [class]="appealBadge(a.status)">{{ a.status }}</span>
+              <span class="text-ink-300 text-xs">→ Bann #{{ a.banId }}</span>
+              <span class="flex-1"></span>
+              <span class="font-mono text-xs text-ink-400">{{ a.createdAt | date:fmt }}</span>
+            </div>
+            <div class="text-sm italic text-ink-300/80 mb-2">„{{ a.text }}"</div>
+            <div *ngIf="a.status !== 'PENDING'" class="text-xs text-ink-300">
+              {{ a.status === 'APPROVED' ? 'Genehmigt' : a.status === 'SHORTENED' ? 'Verkürzt' : 'Abgelehnt' }}
+              von {{ a.reviewerName }}
+              am {{ a.reviewedAt | date:fmt }}
+              <span *ngIf="a.status === 'SHORTENED' && a.shortenedToSeconds != null">
+                · neue Rest-Dauer {{ humaniseSeconds(a.shortenedToSeconds) }}
+              </span>
+            </div>
+            <div *ngIf="a.decisionMessage"
+                 class="mt-2 p-2 bg-cyan-900/30 border border-cyan-700/40 rounded text-cyan-200 text-sm">
+              <strong>Nachricht:</strong> {{ a.decisionMessage }}
+            </div>
           </div>
         </div>
       </mat-card>
@@ -248,5 +279,19 @@ export class PlayerDetailComponent implements OnChanges {
     if (kind === 'BAN') return `${base} bg-red-900/40 text-red-300`;
     if (kind === 'MUTE') return `${base} bg-orange-900/40 text-orange-300`;
     return `${base} bg-eternal-900/40 text-eternal-300`;
+  }
+
+  appealBadge(s: string) {
+    const base = 'text-xs px-2 py-0.5 rounded font-medium';
+    if (s === 'PENDING')   return `${base} bg-orange-900/40 text-orange-300`;
+    if (s === 'APPROVED')  return `${base} bg-green-900/40 text-green-300`;
+    if (s === 'SHORTENED') return `${base} bg-cyan-900/40 text-cyan-300`;
+    return `${base} bg-red-900/40 text-red-300`;
+  }
+
+  /** Public for the appeals card so it doesn't need its own helper. */
+  humaniseSeconds(s: number): string {
+    if (s <= 0) return 'sofort';
+    return this.humanise(s);
   }
 }

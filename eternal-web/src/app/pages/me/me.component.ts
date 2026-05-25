@@ -75,6 +75,12 @@ import { Punishment, UnbanAppeal } from '../../core/models';
           <div *ngIf="a.decisionReason" class="text-ink-300 text-xs mt-1">
             Entscheidung von {{ a.reviewerName }}: {{ a.decisionReason }}
           </div>
+          <!-- Player-facing message attached by the moderator. Highlighted
+               so the player can't miss it. -->
+          <div *ngIf="a.decisionMessage"
+               class="mt-2 p-2 bg-cyan-900/30 border border-cyan-700/40 rounded text-cyan-200">
+            <strong>Nachricht vom Team:</strong> {{ a.decisionMessage }}
+          </div>
         </div>
       </mat-card>
 

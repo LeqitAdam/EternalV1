@@ -62,6 +62,8 @@ public final class Routes {
         app.get("/appeals", this::listAppeals);
         app.post("/appeals/{id}/approve", this::approveAppeal);
         app.post("/appeals/{id}/deny", this::denyAppeal);
+        app.post("/appeals/{id}/shorten", this::shortenAppeal);
+        app.get("/players/search", this::searchPlayers);
         app.get("/reasons", this::listReasons);
         app.get("/bans", this::listActiveBans);
         app.get("/bans/{id}", this::getPunishment);
@@ -242,11 +244,9 @@ public final class Routes {
         out.put("activeMute", activeMute);
         out.put("history", history);
         out.put("reports", reports);
-        // Side-channel: maps every issuer/reporter/modifier/pardon-issuer
-        // UUID referenced above to their cached lastDisplayName. The
-        // dashboard reads from this so the Staff/Reporter columns can show
-        // the rank-coloured form instead of plain names. Same shape used by
-        // all endpoints that return punishment/report lists.
+        // Appeals lifecycle visible in the spieler-search so staff can see
+        // what the player tried and how it was resolved.
+        out.put("appeals", storage.findAppealsByApplicant(profile.uuid()));
         out.put("displayNames", collectDisplayNames(history, reports, activeBan, activeMute));
         ctx.json(out);
     }
@@ -319,11 +319,12 @@ public final class Routes {
         ctx.json(storage.findPunishmentById(id).orElseThrow(NotFoundResponse::new));
     }
 
-    /** Public-ish reasons feed for the web UI — frontend joins this to bans
-     * via {@code reason_id} so it can grey out the pardon button on admin bans. */
+    /** Public-ish reasons feed for the web UI. Now also carries the
+     *  configured appeal-shortening templates so the appeals dialog can
+     *  pre-fill the message + duration. */
     private void listReasons(@NotNull Context ctx) {
         auth.requireStaff(ctx);
-        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        java.util.List<Map<String, Object>> reasonRows = new java.util.ArrayList<>();
         for (var r : reasons.all()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", r.id());
@@ -332,9 +333,21 @@ public final class Routes {
             m.put("durationSeconds", r.durationSeconds());
             m.put("adminOnly", r.adminOnly());
             m.put("requiredGroupId", r.requiredGroupId());
-            out.add(m);
+            reasonRows.add(m);
         }
-        ctx.json(out);
+        java.util.List<Map<String, Object>> templates = new java.util.ArrayList<>();
+        for (var t : reasons.appealShortenTemplates()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", t.id());
+            m.put("label", t.label());
+            m.put("durationSeconds",
+                    de.eternal.core.time.DurationParser.parseToSeconds(t.duration()));
+            m.put("message", t.message());
+            templates.add(m);
+        }
+        ctx.json(Map.of(
+                "reasons", reasonRows,
+                "appealShortenTemplates", templates));
     }
 
     private void pardonPunishment(@NotNull Context ctx) {
@@ -486,7 +499,7 @@ public final class Routes {
         long id = storage.createAppeal(new UnbanAppeal(
                 -1L, banId, ban.targetUuid(), ban.targetName(), text,
                 UnbanAppeal.Status.PENDING, Instant.now(),
-                null, null, null, null
+                null, null, null, null, null, null
         ));
         ctx.json(Map.of("ok", true, "appealId", id));
     }
@@ -522,7 +535,7 @@ public final class Routes {
         long id = storage.createAppeal(new UnbanAppeal(
                 -1L, activeBan.id(), p.uuid(), p.name(), text,
                 UnbanAppeal.Status.PENDING, Instant.now(),
-                null, null, null, null
+                null, null, null, null, null, null
         ));
         ctx.json(Map.of("ok", true, "appealId", id));
     }
@@ -566,6 +579,72 @@ public final class Routes {
         ctx.json(Map.of("ok", true));
     }
 
+    /**
+     * Third appeal decision path: shorten the ban instead of full pardon /
+     * rejection. Mods can do this WITHOUT {@code eternal.modify.duration} —
+     * the shortening is appeal-scoped and the audit trail goes through the
+     * appeal record + the punishment's last_appeal_message column.
+     */
+    @SuppressWarnings("unchecked")
+    private void shortenAppeal(@NotNull io.javalin.http.Context ctx) {
+        var p = auth.requireStaff(ctx);
+        long id = parseLong(ctx, "id");
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        if (body == null) throw new BadRequestResponse("missing body");
+        long remainingSec = body.get("remainingSeconds") instanceof Number n ? n.longValue() : -2L;
+        if (remainingSec < 0) throw new BadRequestResponse("remainingSeconds must be >= 0");
+        String message = String.valueOf(body.getOrDefault("message", "")).trim();
+        if (message.isEmpty()) throw new BadRequestResponse("message must not be empty");
+
+        UnbanAppeal appeal = storage.findAppeal(id).orElseThrow(NotFoundResponse::new);
+        if (appeal.status() != UnbanAppeal.Status.PENDING) {
+            throw new BadRequestResponse("Appeal not pending");
+        }
+
+        // Decide appeal first so the audit trail is committed even if the
+        // duration change races against the user joining.
+        java.time.Instant newExpires = java.time.Instant.now().plusSeconds(remainingSec);
+        if (storage instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+            sql.decideAppealFull(id, p.uuid(), p.name(),
+                    UnbanAppeal.Status.SHORTENED,
+                    "Verkuerzt auf " + remainingSec + "s",
+                    message, remainingSec);
+            sql.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires, message);
+        } else {
+            // Fallback for non-Sql backends — at least decision lands.
+            storage.decideAppeal(id, p.uuid(), p.name(),
+                    UnbanAppeal.Status.SHORTENED, "Verkuerzt: " + message);
+            storage.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires);
+        }
+        ctx.json(Map.of("ok", true, "newExpiresAt", newExpires.toEpochMilli()));
+    }
+
+    /**
+     * Autocomplete for the dashboard player search. Matches name-prefix
+     * AND uuid-prefix (case-insensitive). Up to 10 results.
+     */
+    private void searchPlayers(@NotNull io.javalin.http.Context ctx) {
+        auth.requireStaff(ctx);
+        String q = ctx.queryParam("q");
+        if (q == null || q.trim().length() < 2) {
+            ctx.json(java.util.List.of());
+            return;
+        }
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        if (storage instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+            for (var pp : sql.searchProfiles(q.trim(), 10)) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("uuid", pp.uuid().toString());
+                m.put("name", pp.name());
+                m.put("lastDisplayName", pp.lastDisplayName());
+                m.put("lastGroupName", pp.lastGroupName());
+                m.put("lastSeen", pp.lastSeen().toEpochMilli());
+                out.add(m);
+            }
+        }
+        ctx.json(out);
+    }
+
     /* --- ban from report ----------------------------------------------- */
 
     @SuppressWarnings("unchecked")
@@ -591,7 +670,8 @@ public final class Routes {
                 reasonIdStr, label, message,
                 now, expires, true,
                 null, null, null, null,
-                null, null, null
+                null, null, null,
+                null, null
         );
         long banId = storage.insertPunishment(draft);
         storage.closeReport(reportId, "Banned (#" + banId + "): " + label + " durch " + p.name());

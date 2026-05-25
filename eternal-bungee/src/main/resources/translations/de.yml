@@ -90,6 +90,8 @@ ban-kick-screen: |-
   &dDauer&8: &7{duration}
   &dBann-ID&8: &c#{id}
 
+  &dHinweis&8: &7{appealNote}
+
   &8Beschwerde: &f/appeal
 
 unban-success: "{prefix}&7Du hast &e{target}&7 entbannt."

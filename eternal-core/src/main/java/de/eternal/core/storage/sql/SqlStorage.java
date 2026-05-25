@@ -234,6 +234,8 @@ public final class SqlStorage implements EternalStorage {
             migrateAddPunishmentModified(c);
             migrateAddPunishmentHidden(c);
             migrateAddReportHidden(c);
+            migrateAddPunishmentAppealCols(c);
+            migrateAddAppealDecisionMessage(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -331,6 +333,32 @@ public final class SqlStorage implements EternalStorage {
         try (Statement st = c.createStatement()) {
             st.execute("ALTER TABLE eternal_reports ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
         } catch (SQLException ignored) { /* already exists */ }
+    }
+
+    /** Idempotent ALTER fuer Appeal-bezogene Felder am Punishment (Nachricht + originale Dauer). */
+    private void migrateAddPunishmentAppealCols(@NotNull Connection c) throws SQLException {
+        for (String stmt : new String[]{
+                isSqlite()
+                        ? "ALTER TABLE eternal_punishments ADD COLUMN last_appeal_message TEXT"
+                        : "ALTER TABLE eternal_punishments ADD COLUMN last_appeal_message TEXT NULL",
+                "ALTER TABLE eternal_punishments ADD COLUMN original_expires_at BIGINT"
+        }) {
+            try (Statement st = c.createStatement()) { st.execute(stmt); }
+            catch (SQLException ignored) { /* already exists */ }
+        }
+    }
+
+    /** Idempotent ALTER fuer die Decision-Message + shortened-to-seconds am Appeal. */
+    private void migrateAddAppealDecisionMessage(@NotNull Connection c) throws SQLException {
+        for (String stmt : new String[]{
+                isSqlite()
+                        ? "ALTER TABLE eternal_appeals ADD COLUMN decision_message TEXT"
+                        : "ALTER TABLE eternal_appeals ADD COLUMN decision_message TEXT NULL",
+                "ALTER TABLE eternal_appeals ADD COLUMN shortened_to_seconds BIGINT"
+        }) {
+            try (Statement st = c.createStatement()) { st.execute(stmt); }
+            catch (SQLException ignored) { /* already exists */ }
+        }
     }
 
     /** Idempotent ALTER fuer den letzten gesehenen DisplayName (rang-formatiert). */
@@ -521,12 +549,19 @@ public final class SqlStorage implements EternalStorage {
         // mid-migration starts don't NPE.
         long modAt = 0; boolean modAtNull = true;
         String modByUuid = null; String modByName = null;
+        String appealMsg = null;
+        long origExpires = 0; boolean origExpiresNull = true;
         try {
             modAt = rs.getLong("modified_at");
             modAtNull = rs.wasNull();
             modByUuid = rs.getString("modified_by_uuid");
             modByName = rs.getString("modified_by_name");
         } catch (SQLException ignored) { /* column not yet present */ }
+        try {
+            appealMsg = rs.getString("last_appeal_message");
+            origExpires = rs.getLong("original_expires_at");
+            origExpiresNull = rs.wasNull();
+        } catch (SQLException ignored) { /* columns not yet present */ }
 
         return new PunishmentEntry(
                 rs.getLong("id"),
@@ -547,7 +582,9 @@ public final class SqlStorage implements EternalStorage {
                 pardonedNull ? null : Instant.ofEpochMilli(pardoned),
                 modAtNull ? null : Instant.ofEpochMilli(modAt),
                 modByUuid == null ? null : UUID.fromString(modByUuid),
-                modByName
+                modByName,
+                appealMsg,
+                origExpiresNull ? null : Instant.ofEpochMilli(origExpires)
         );
     }
 
@@ -576,19 +613,64 @@ public final class SqlStorage implements EternalStorage {
     @Override
     public boolean modifyPunishmentDuration(long id, @Nullable UUID modifierUuid, @NotNull String modifierName,
                                              @Nullable Instant newExpires) {
+        return modifyPunishmentDuration(id, modifierUuid, modifierName, newExpires, null);
+    }
+
+    /**
+     * Same as {@link #modifyPunishmentDuration(long, UUID, String, Instant)}
+     * but also stamps a user-visible appeal message into the row when
+     * non-null. Used by the appeal-shortening flow so the kick screen and
+     * the user's appeal page can show the same explanation.
+     *
+     * <p>Side effects beyond the obvious update:</p>
+     * <ul>
+     *     <li>If {@code original_expires_at} is still NULL on the row, the
+     *         CURRENT {@code expires_at} is copied there first — so /history
+     *         can show "ursprünglich bis X → jetzt bis Y" forever.</li>
+     *     <li>If the row is currently {@code active = 0} and the new expiry
+     *         is in the future (or permanent), the row is REACTIVATED:
+     *         active=1 + pardon-fields cleared. This is the "/modify of an
+     *         already-pardoned ban brings it back" semantics we want.</li>
+     * </ul>
+     */
+    public boolean modifyPunishmentDuration(long id, @Nullable UUID modifierUuid, @NotNull String modifierName,
+                                             @Nullable Instant newExpires, @Nullable String appealMessage) {
+        long now = System.currentTimeMillis();
+        boolean shouldBeActive = (newExpires == null) || newExpires.toEpochMilli() > now;
+
+        // Two-phase: first copy expires_at into original_expires_at IFF
+        // original_expires_at is still NULL (i.e. never modified). Then do the
+        // actual update. Done as a single statement using CASE for atomicity.
         String sql = """
                 UPDATE eternal_punishments
-                SET expires_at = ?, modified_at = ?, modified_by_uuid = ?, modified_by_name = ?
+                SET expires_at = ?,
+                    original_expires_at = COALESCE(original_expires_at, expires_at),
+                    modified_at = ?, modified_by_uuid = ?, modified_by_name = ?,
+                    last_appeal_message = CASE WHEN ? IS NULL THEN last_appeal_message ELSE ? END,
+                    active = ?,
+                    pardon_issuer_uuid = CASE WHEN ? = 1 THEN NULL ELSE pardon_issuer_uuid END,
+                    pardon_issuer_name = CASE WHEN ? = 1 THEN NULL ELSE pardon_issuer_name END,
+                    pardon_reason      = CASE WHEN ? = 1 THEN NULL ELSE pardon_reason END,
+                    pardoned_at        = CASE WHEN ? = 1 THEN NULL ELSE pardoned_at END
                 WHERE id = ?
                 """;
         try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
-            if (newExpires == null) ps.setNull(1, java.sql.Types.BIGINT);
-            else ps.setLong(1, newExpires.toEpochMilli());
-            ps.setLong(2, System.currentTimeMillis());
-            if (modifierUuid == null) ps.setNull(3, java.sql.Types.VARCHAR);
-            else ps.setString(3, modifierUuid.toString());
-            ps.setString(4, modifierName);
-            ps.setLong(5, id);
+            int i = 1;
+            if (newExpires == null) ps.setNull(i++, java.sql.Types.BIGINT);
+            else ps.setLong(i++, newExpires.toEpochMilli());
+            ps.setLong(i++, now);
+            if (modifierUuid == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+            else ps.setString(i++, modifierUuid.toString());
+            ps.setString(i++, modifierName);
+            if (appealMessage == null) { ps.setNull(i++, java.sql.Types.VARCHAR); ps.setNull(i++, java.sql.Types.VARCHAR); }
+            else { ps.setString(i++, appealMessage); ps.setString(i++, appealMessage); }
+            int active = shouldBeActive ? 1 : 0;
+            ps.setInt(i++, active);
+            ps.setInt(i++, active); // pardon_issuer_uuid CASE
+            ps.setInt(i++, active); // pardon_issuer_name CASE
+            ps.setInt(i++, active); // pardon_reason CASE
+            ps.setInt(i++, active); // pardoned_at CASE
+            ps.setLong(i, id);
             return ps.executeUpdate() > 0;
         } catch (SQLException ex) {
             throw new StorageException("modifyPunishmentDuration failed", ex);
@@ -1167,9 +1249,21 @@ public final class SqlStorage implements EternalStorage {
     @Override
     public boolean decideAppeal(long id, @NotNull UUID reviewerUuid, @NotNull String reviewerName,
                                  @NotNull UnbanAppeal.Status decision, @NotNull String decisionReason) {
+        return decideAppealFull(id, reviewerUuid, reviewerName, decision, decisionReason, null, null);
+    }
+
+    /**
+     * Extended decide variant that also stamps the player-visible
+     * {@code decisionMessage} and (for SHORTENED) the new remaining
+     * duration in seconds. Used by the appeal-shorten flow.
+     */
+    public boolean decideAppealFull(long id, @NotNull UUID reviewerUuid, @NotNull String reviewerName,
+                                     @NotNull UnbanAppeal.Status decision, @NotNull String decisionReason,
+                                     @Nullable String decisionMessage, @Nullable Long shortenedToSeconds) {
         String sql = """
                 UPDATE eternal_unban_appeals
-                SET status = ?, reviewer_uuid = ?, reviewer_name = ?, reviewed_at = ?, decision_reason = ?
+                SET status = ?, reviewer_uuid = ?, reviewer_name = ?, reviewed_at = ?,
+                    decision_reason = ?, decision_message = ?, shortened_to_seconds = ?
                 WHERE id = ? AND status = 'PENDING'
                 """;
         try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
@@ -1178,10 +1272,14 @@ public final class SqlStorage implements EternalStorage {
             ps.setString(3, reviewerName);
             ps.setLong(4, System.currentTimeMillis());
             ps.setString(5, decisionReason);
-            ps.setLong(6, id);
+            if (decisionMessage == null) ps.setNull(6, java.sql.Types.VARCHAR);
+            else ps.setString(6, decisionMessage);
+            if (shortenedToSeconds == null) ps.setNull(7, java.sql.Types.BIGINT);
+            else ps.setLong(7, shortenedToSeconds);
+            ps.setLong(8, id);
             return ps.executeUpdate() > 0;
         } catch (SQLException ex) {
-            throw new StorageException("decideAppeal failed", ex);
+            throw new StorageException("decideAppealFull failed", ex);
         }
     }
 
@@ -1189,6 +1287,14 @@ public final class SqlStorage implements EternalStorage {
         String revUuid = rs.getString("reviewer_uuid");
         long revAt = rs.getLong("reviewed_at");
         boolean revNull = rs.wasNull();
+        // New columns are added by migration; tolerate absence for in-place upgrade.
+        String decisionMsg = null;
+        long shortened = 0; boolean shortenedNull = true;
+        try {
+            decisionMsg = rs.getString("decision_message");
+            shortened = rs.getLong("shortened_to_seconds");
+            shortenedNull = rs.wasNull();
+        } catch (SQLException ignored) { /* not yet migrated */ }
         return new UnbanAppeal(
                 rs.getLong("id"),
                 rs.getLong("ban_id"),
@@ -1200,8 +1306,36 @@ public final class SqlStorage implements EternalStorage {
                 revUuid == null ? null : UUID.fromString(revUuid),
                 rs.getString("reviewer_name"),
                 revNull ? null : Instant.ofEpochMilli(revAt),
-                rs.getString("decision_reason")
+                rs.getString("decision_reason"),
+                decisionMsg,
+                shortenedNull ? null : shortened
         );
+    }
+
+    /**
+     * Profile prefix search by name OR UUID. Used by the dashboard
+     * auto-complete; matches the start of {@code name} (case-insensitive)
+     * and the start of the UUID string. Capped to {@code limit}.
+     */
+    public @NotNull List<de.eternal.core.model.PlayerProfile> searchProfiles(@NotNull String query, int limit) {
+        if (query.isBlank()) return List.of();
+        String like = query.toLowerCase(java.util.Locale.ROOT) + "%";
+        String sql = "SELECT uuid, name, first_seen, last_seen, last_address, last_tier, last_group_name, last_display_name "
+                + "FROM eternal_profiles "
+                + "WHERE LOWER(name) LIKE ? OR LOWER(uuid) LIKE ? "
+                + "ORDER BY last_seen DESC LIMIT ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, like);
+            ps.setString(2, like);
+            ps.setInt(3, Math.max(1, Math.min(50, limit)));
+            try (ResultSet rs = ps.executeQuery()) {
+                List<de.eternal.core.model.PlayerProfile> out = new ArrayList<>();
+                while (rs.next()) out.add(readProfile(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("searchProfiles failed", ex);
+        }
     }
 
     /* --- Login sessions ------------------------------------------------ */

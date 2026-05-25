@@ -71,9 +71,31 @@ export class ApiService {
   }
 
   /** Fetches the configured reason list incl. adminOnly flag so the bans
-   *  table can grey out the pardon button for non-admins. */
-  reasons(): Observable<Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number }>> {
-    return this.http.get<Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number }>>(this.url('/reasons'));
+   *  table can grey out the pardon button for non-admins, plus the
+   *  appeal-shortening templates the dialog needs. */
+  reasons(): Observable<{
+    reasons: Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number }>;
+    appealShortenTemplates: Array<{ id: string; label: string; durationSeconds: number; message: string }>;
+  }> {
+    return this.http.get<{
+      reasons: Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number }>;
+      appealShortenTemplates: Array<{ id: string; label: string; durationSeconds: number; message: string }>;
+    }>(this.url('/reasons'));
+  }
+
+  /** Verkürzt einen offenen Antrag um {@code remainingSeconds} und schickt
+   *  dem Spieler die übergebene Nachricht. */
+  shortenAppeal(id: number, body: { remainingSeconds: number; message: string }): Observable<{ ok: boolean; newExpiresAt: number }> {
+    return this.http.post<{ ok: boolean; newExpiresAt: number }>(this.url(`/appeals/${id}/shorten`), body);
+  }
+
+  /** Autocomplete: Spieler-Suche nach Name- oder UUID-Präfix. */
+  searchPlayers(q: string): Observable<Array<{
+    uuid: string; name: string; lastDisplayName: string; lastGroupName: string; lastSeen: number;
+  }>> {
+    return this.http.get<Array<{
+      uuid: string; name: string; lastDisplayName: string; lastGroupName: string; lastSeen: number;
+    }>>(this.url('/players/search'), { params: { q } });
   }
 
   claimReport(id: number): Observable<{ ok: boolean }> {

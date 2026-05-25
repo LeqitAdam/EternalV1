@@ -38,10 +38,15 @@ public final class ConnectionListener implements Listener {
                 : DurationParser.formatRemaining(
                         Math.max(0, b.expiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
 
+        // appealNote shows up only if a recent shorten/decision attached a
+        // player-facing message to this ban; passes through the
+        // {appealNote} placeholder in the translation.
+        String appealNote = b.lastAppealMessage() == null ? "" : b.lastAppealMessage();
         String screen = plugin.messages().format("ban-kick-screen",
                 "reason", b.reasonLabel(),
                 "duration", duration,
-                "id", b.id());
+                "id", b.id(),
+                "appealNote", appealNote);
         event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED,
                 ChatColor.translateAlternateColorCodes('&', screen));
     }

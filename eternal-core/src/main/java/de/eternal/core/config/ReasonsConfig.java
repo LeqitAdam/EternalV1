@@ -26,13 +26,20 @@ public final class ReasonsConfig {
     private final Map<Integer, PunishmentReason> byId;
     private final List<PunishmentReason> ordered;
     private final List<ReportReason> reportReasons;
+    private final List<AppealShortenTemplate> appealShortenTemplates;
 
-    private ReasonsConfig(@NotNull List<PunishmentReason> reasons, @NotNull List<ReportReason> reports) {
+    private ReasonsConfig(@NotNull List<PunishmentReason> reasons, @NotNull List<ReportReason> reports,
+                           @NotNull List<AppealShortenTemplate> shortenTemplates) {
         this.ordered = List.copyOf(reasons);
         Map<Integer, PunishmentReason> map = new LinkedHashMap<>();
         for (PunishmentReason r : reasons) map.put(r.id(), r);
         this.byId = Collections.unmodifiableMap(map);
         this.reportReasons = List.copyOf(reports);
+        this.appealShortenTemplates = List.copyOf(shortenTemplates);
+    }
+
+    public @NotNull List<AppealShortenTemplate> appealShortenTemplates() {
+        return appealShortenTemplates;
     }
 
     public @NotNull List<PunishmentReason> all() {
@@ -85,9 +92,33 @@ public final class ReasonsConfig {
             ));
         }
 
-        return new ReasonsConfig(reasons, reports);
+        List<AppealShortenTemplate> shortenTemplates = new ArrayList<>();
+        for (Map<String, Object> r : Configs.sectionListOr(raw, "appeal-shorten-templates")) {
+            shortenTemplates.add(new AppealShortenTemplate(
+                    Configs.stringOr(r, "id", "tpl-" + (shortenTemplates.size() + 1)),
+                    Configs.stringOr(r, "label", "Vorlage"),
+                    Configs.stringOr(r, "duration", "0s"),
+                    Configs.stringOr(r, "message", "")
+            ));
+        }
+
+        return new ReasonsConfig(reasons, reports, shortenTemplates);
     }
 
     public record ReportReason(@NotNull String id, @NotNull String label) {
+    }
+
+    /**
+     * Vorgefertigte Vorlage für Verkürzungen via Unban-Antrag. {@code duration}
+     * ist eine DurationParser-kompatible Zeitangabe ({@code 1d}, {@code 6h},
+     * {@code permanent} etc.), {@code message} wird im Dialog vorausgefüllt und
+     * landet 1:1 als Decision-Message am Antrag.
+     */
+    public record AppealShortenTemplate(
+            @NotNull String id,
+            @NotNull String label,
+            @NotNull String duration,
+            @NotNull String message
+    ) {
     }
 }

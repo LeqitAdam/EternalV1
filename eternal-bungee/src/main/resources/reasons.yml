@@ -160,3 +160,28 @@ report-reasons:
     label: "Teaming"
   - id: other
     label: "Sonstiges"
+
+# Vorgefertigte Verkuerzungs-Vorlagen fuer Unban-Antraege.
+# Bei der Bearbeitung eines Antrags kann der Mod eine Vorlage waehlen.
+# duration: neue REST-Dauer ab Verkuerzung (DurationParser-Syntax)
+# message:  Text, den der Spieler im Dashboard + Kick-Screen sieht
+appeal-shorten-templates:
+  - id: half
+    label: "Auf 50% verkuerzen"
+    duration: 0s
+    message: "Dein Antrag wurde teilweise genehmigt. Dein Bann wurde verkuerzt - bitte halte dich beim naechsten Mal an die Regeln."
+
+  - id: 1d
+    label: "Auf 1 Tag verkuerzen"
+    duration: 1d
+    message: "Dein Bann wurde nach Pruefung auf 1 Tag verkuerzt. Wir hoffen auf besseres Verhalten."
+
+  - id: 1h
+    label: "Auf 1 Stunde verkuerzen"
+    duration: 1h
+    message: "Dein Bann wurde auf 1 Stunde verkuerzt. Bitte lies dir die Regeln noch einmal durch."
+
+  - id: 5m-warning
+    label: "Auf 5 Minuten verkuerzen (Verwarnung)"
+    duration: 5m
+    message: "Wir betrachten dies als Verwarnung. Bei naechstem Verstoss erfolgt eine laengere Strafe."

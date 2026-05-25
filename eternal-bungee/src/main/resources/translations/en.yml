@@ -70,6 +70,8 @@ ban-kick-screen: |-
   &dDuration&8: &7{duration}
   &dBan-ID&8: &c#{id}
 
+  &dNote&8: &7{appealNote}
+
   &8Appeal: &f/appeal
 
 unban-success: "{prefix}&7You unbanned &e{target}&7."

@@ -122,7 +122,7 @@ export class BansComponent {
       error: () => this.loading.set(false)
     });
     this.api.reasons().subscribe({
-      next: list => list.filter(r => r.adminOnly).forEach(r => this.adminReasons.add(r.id)),
+      next: res => res.reasons.filter(r => r.adminOnly).forEach(r => this.adminReasons.add(r.id)),
       error: () => { /* non-fatal: pardon button defaults to "available" */ }
     });
   }

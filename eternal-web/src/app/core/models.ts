@@ -60,6 +60,8 @@ export interface PlayerLookup {
   /** uuid → cached lastDisplayName for every staff/reporter/modifier UUID
    *  referenced in the history + reports. Empty entries are omitted. */
   displayNames: Record<string, string>;
+  /** All unban-appeals the player has ever filed, newest first. */
+  appeals: UnbanAppeal[];
   activeBan: Punishment | null;
   activeMute: Punishment | null;
   history: Punishment[];
@@ -93,12 +95,16 @@ export interface UnbanAppeal {
   applicantUuid: string;
   applicantName: string;
   text: string;
-  status: 'PENDING' | 'APPROVED' | 'DENIED';
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'SHORTENED';
   createdAt: number;
   reviewerUuid: string | null;
   reviewerName: string | null;
   reviewedAt: number | null;
   decisionReason: string | null;
+  /** Player-facing explanation, shown on /me/appeals and in the ban-kick. */
+  decisionMessage: string | null;
+  /** Only set when status==SHORTENED — new remaining duration in seconds. */
+  shortenedToSeconds: number | null;
 }
 
 export interface LinkInit {
