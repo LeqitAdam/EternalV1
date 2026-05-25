@@ -11,11 +11,11 @@ import de.eternal.core.storage.sql.SqlStorage;
 import de.eternal.spigot.command.BanCommand;
 import de.eternal.spigot.command.HistoryCommand;
 import de.eternal.spigot.command.EternalCommand;
-import de.eternal.spigot.command.EternalReportCommand;
+// EternalReportCommand wurde entfernt — Reports nur noch via Dashboard.
 import de.eternal.spigot.command.LookupCommand;
 import de.eternal.spigot.command.MuteCommand;
 import de.eternal.spigot.command.ReportCommand;
-import de.eternal.spigot.command.ReportSystemCommand;
+// ReportSystemCommand wurde entfernt.
 import de.eternal.spigot.command.UnbanCommand;
 import de.eternal.spigot.command.UnmuteCommand;
 import de.eternal.spigot.api.ActionPoller;
@@ -23,9 +23,7 @@ import de.eternal.spigot.api.ApiBridge;
 import de.eternal.spigot.listener.ChatListener;
 import de.eternal.spigot.listener.ConnectionListener;
 import de.eternal.spigot.report.BungeeChannelBridge;
-import de.eternal.spigot.report.ReportActions;
-import de.eternal.spigot.report.ReportGuiListener;
-import de.eternal.spigot.report.ReportListGui;
+// ReportActions/ReportListGui/ReportGuiListener wurden entfernt — Staff-Side komplett im Dashboard.
 import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -58,12 +56,12 @@ public final class EternalSpigot extends JavaPlugin {
     private OnlineStaffRegistry staffRegistry;
     private CloudPermsAccess cloudPerms;
     private de.eternal.spigot.listener.CloudNetBridgeListener cloudNetBridge;
-    private ReportListGui reportGui;
+    // reportGui entfernt (war für /reportsystem list — Web-only jetzt).
     private de.eternal.spigot.integration.ReplayBridge replayBridge;
     private de.eternal.spigot.report.ReportReasonGui reportReasonGui;
     private de.eternal.spigot.command.ReportCommand reportCommandRef;
     private BungeeChannelBridge bungeeBridge;
-    private ReportActions reportActions;
+    // reportActions entfernt — Annahme/Schließen läuft via API+ActionPoller.
     private ApiBridge apiBridge;
     private ActionPoller actionPoller;
 
@@ -160,11 +158,9 @@ public final class EternalSpigot extends JavaPlugin {
                 this.cloudNetBridge.applyToOnline();
                 getLogger().info("CloudNet-Bruecke aktiv — Gruppen-Mapping aus config.yml.");
             }
-            this.reportGui = new ReportListGui(this);
             this.reportReasonGui = new de.eternal.spigot.report.ReportReasonGui(this);
             this.bungeeBridge = new BungeeChannelBridge(this);
             this.replayBridge = new de.eternal.spigot.integration.ReplayBridge(getLogger());
-            this.reportActions = new ReportActions(this, bungeeBridge);
         }
 
         // ApiBridge wird auch beim /eternal reload neu erzeugt — sonst klebt
@@ -246,13 +242,15 @@ public final class EternalSpigot extends JavaPlugin {
         bind("unmute", new UnmuteCommand(this));
         this.reportCommandRef = new ReportCommand(this);
         bind("report", reportCommandRef);
-        bind("reportsystem", new ReportSystemCommand(this));
+        // /reportsystem + /eternalreport sind komplett entfernt: Reports
+        // werden ausschliesslich ueber das Web-Dashboard angenommen,
+        // teleportiert und geschlossen. Ingame gibt es nur noch /report
+        // fuer Spieler, die jemanden melden.
         bind("lookup", new LookupCommand(this));
         bind("history", new HistoryCommand(this));
         bind("resethistory", new de.eternal.spigot.command.ResetHistoryCommand(this));
         bind("modify", new de.eternal.spigot.command.ModifyCommand(this));
         bind("eternal", new EternalCommand(this));
-        bind("eternalreport", new EternalReportCommand(this, reportActions));
     }
 
     private void bind(@NotNull String name, @NotNull org.bukkit.command.CommandExecutor exec) {
@@ -264,7 +262,7 @@ public final class EternalSpigot extends JavaPlugin {
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new ConnectionListener(this), this);
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
-        getServer().getPluginManager().registerEvents(new ReportGuiListener(this, reportGui, reportActions), this);
+        // ReportGuiListener entfernt — kein ingame-Reports-GUI mehr.
         getServer().getPluginManager().registerEvents(
                 new de.eternal.spigot.report.ReportReasonGuiListener(this, reportReasonGui, reportCommandRef.cooldownMap()), this);
     }
@@ -281,9 +279,9 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull Messages messages() { return messages; }
     public @NotNull OnlineStaffRegistry staff() { return staffRegistry; }
     public @NotNull CloudPermsAccess cloudPerms() { return cloudPerms; }
-    public @NotNull ReportListGui reportGui() { return reportGui; }
+    // reportGui() accessor entfernt.
     public @NotNull de.eternal.spigot.report.ReportReasonGui reportReasonGui() { return reportReasonGui; }
-    public @NotNull ReportActions reportActions() { return reportActions; }
+    // reportActions() accessor entfernt.
     public @NotNull de.eternal.spigot.integration.ReplayBridge replayBridge() { return replayBridge; }
     public @NotNull BungeeChannelBridge bungeeBridge() { return bungeeBridge; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }

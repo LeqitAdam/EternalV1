@@ -30,14 +30,8 @@ commands:
     description: Reportet einen Spieler.
     usage: /report <Spieler> [reason-id] [Kommentar]
     permission: eternal.report
-  reportsystem:
-    description: Mod-Login fuer Reports.
-    usage: /reportsystem <login|logout|list>
-    permission: eternal.reportsystem
-  eternalreport:
-    description: Internes Klick-Backend fuer die Chat-Buttons.
-    usage: /eternalreport <accept|reject|tp> <id>
-    permission: eternal.reportsystem
+  # /reportsystem + /eternalreport wurden entfernt — Reports werden nur
+  # noch ueber das Web-Dashboard angenommen, geschlossen, teleportiert.
   history:
     description: Zeigt Bann-/Mute-/Report-Historie eines Spielers.
     usage: /history <Spieler>

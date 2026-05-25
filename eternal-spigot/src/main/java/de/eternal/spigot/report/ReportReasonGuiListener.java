@@ -79,8 +79,7 @@ public final class ReportReasonGuiListener implements Listener {
         });
     }
 
-    /** Same staff-notify formatting as ReportCommand.notifyStaff — kept in
-     *  sync deliberately so chat and GUI submissions look identical. */
+    /** Simple chat notification — Reports werden im Dashboard angenommen. */
     private void notifyStaff(@NotNull ReportEntry entry) {
         if (!plugin.coreConfig().reports().notifyOnlineStaff()) return;
         String legacy = plugin.messages().format("report-staff-notify",
@@ -88,33 +87,8 @@ public final class ReportReasonGuiListener implements Listener {
                 "target", entry.targetName(),
                 "reason", entry.reasonLabel(),
                 "reporter", entry.reporterName());
-
-        BaseComponent accept = clickable(
-                plugin.messages().format("report-notify-accept"),
-                "/eternalreport accept " + entry.id(),
-                plugin.messages().format("hover-accept-report", "id", entry.id()));
-        BaseComponent reject = clickable(
-                plugin.messages().format("report-notify-reject"),
-                "/eternalreport reject " + entry.id(),
-                plugin.messages().format("hover-reject-report", "id", entry.id()));
-        BaseComponent tp = clickable(
-                plugin.messages().format("report-notify-tp"),
-                "/eternalreport tp " + entry.id(),
-                plugin.messages().format("hover-tp-report", "id", entry.id()));
-
-        BaseComponent[] components = de.eternal.spigot.Components.concat(
-                legacy + " ", accept, " ", reject, " ", tp);
         for (Player p : Bukkit.getOnlinePlayers()) {
-            if (p.hasPermission("eternal.report.notify")) p.spigot().sendMessage(components);
+            if (p.hasPermission("eternal.report.notify")) p.sendMessage(legacy);
         }
-    }
-
-    private @NotNull BaseComponent clickable(@NotNull String legacy, @NotNull String cmd,
-                                              @NotNull String hover) {
-        TextComponent c = de.eternal.spigot.Components.legacy(legacy);
-        c.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, cmd));
-        c.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                new Text(TextComponent.fromLegacyText(hover))));
-        return c;
     }
 }

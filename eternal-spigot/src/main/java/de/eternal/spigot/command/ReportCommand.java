@@ -142,35 +142,15 @@ public final class ReportCommand implements CommandExecutor {
 
     private void notifyStaff(@NotNull ReportEntry entry) {
         if (!plugin.coreConfig().reports().notifyOnlineStaff()) return;
+        // Reports werden im Dashboard angenommen — die Chat-Notification
+        // ist nur noch ein Hinweis, keine Action-Buttons mehr.
         String legacy = plugin.messages().format("report-staff-notify",
                 "id", entry.id(),
                 "target", entry.targetName(),
                 "reason", entry.reasonLabel(),
                 "reporter", entry.reporterName());
-
-        BaseComponent accept = clickableAction(
-                plugin.messages().format("report-notify-accept"),
-                "/eternalreport accept " + entry.id(),
-                plugin.messages().format("hover-accept-report", "id", entry.id()));
-        BaseComponent reject = clickableAction(
-                plugin.messages().format("report-notify-reject"),
-                "/eternalreport reject " + entry.id(),
-                plugin.messages().format("hover-reject-report", "id", entry.id()));
-        BaseComponent tp = clickableAction(
-                plugin.messages().format("report-notify-tp"),
-                "/eternalreport tp " + entry.id(),
-                plugin.messages().format("hover-tp-report", "id", entry.id()));
-
-        BaseComponent[] components = Components.concat(
-                legacy + " ", accept, " ", reject, " ", tp);
-
-        // Global an alle Online-Staff mit eternal.report.notify — unabhaengig
-        // vom /reportsystem login Status. Klick auf [Annehmen] meldet sie
-        // automatisch ein.
         for (Player p : Bukkit.getOnlinePlayers()) {
-            if (p.hasPermission("eternal.report.notify")) {
-                p.spigot().sendMessage(components);
-            }
+            if (p.hasPermission("eternal.report.notify")) p.sendMessage(legacy);
         }
     }
 

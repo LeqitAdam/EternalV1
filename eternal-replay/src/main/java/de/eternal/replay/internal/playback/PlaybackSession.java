@@ -45,10 +45,19 @@ public final class PlaybackSession {
     private final Logger log;
     private final Runnable onEnd;
 
-    /** Saved inventory + location + gamemode, restored on exit. */
+    /** Saved player state, restored on exit. */
     private final ItemStack[] savedInventory;
     private final Location savedLocation;
     private final GameMode savedGameMode;
+    private final boolean savedAllowFlight;
+    private final boolean savedFlying;
+    private final boolean savedInvulnerable;
+    /** Players we hid from the viewer's view during playback. Tracked so
+     *  stop() can showPlayer them again exactly once. */
+    private final java.util.Set<UUID> hiddenPlayers = new java.util.HashSet<>();
+    /** Plugin reference saved so stop() can pass it to showPlayer/hidePlayer
+     *  (those overloads need a Plugin handle in modern Bukkit). */
+    private org.bukkit.plugin.Plugin plugin;
 
     /** Spawned armor stands, keyed by playerIdx (matches the file header). */
     private final Map<Integer, GhostEntity> ghosts = new HashMap<>();
@@ -82,6 +91,9 @@ public final class PlaybackSession {
         this.savedInventory = viewer.getInventory().getContents().clone();
         this.savedLocation = viewer.getLocation().clone();
         this.savedGameMode = viewer.getGameMode();
+        this.savedAllowFlight = viewer.getAllowFlight();
+        this.savedFlying = viewer.isFlying();
+        this.savedInvulnerable = viewer.isInvulnerable();
     }
 
     public @NotNull PlaybackHandle apiHandle() {
@@ -89,13 +101,42 @@ public final class PlaybackSession {
     }
 
     public void start(@NotNull org.bukkit.plugin.Plugin plugin) {
+        this.plugin = plugin;
         loadAll();
-        viewer.setGameMode(GameMode.SPECTATOR);
+
+        // CRITICAL FIX: every Recordable's relativeMs is stamped against
+        // the recorder's session-start (= server boot time), which is
+        // huge by the time a real report comes in. If we left the
+        // playhead at 0 the tick loop would never emit anything until
+        // wall-clock time had advanced by ~playheadOf(first record)
+        // milliseconds. Anchor the playhead to the first record so frames
+        // start emitting immediately.
+        if (!records.isEmpty()) {
+            playheadMs = records.get(0).relativeMs();
+        }
+
+        // ADVENTURE + flight instead of SPECTATOR — spectator hides the
+        // hotbar (no controls visible) and gives no body to teleport.
+        // Adventure prevents block changes, allow-flight lets us roam
+        // freely, invulnerable stops accidental death during playback.
+        viewer.setGameMode(GameMode.ADVENTURE);
+        viewer.setAllowFlight(true);
+        viewer.setFlying(true);
+        viewer.setInvulnerable(true);
+
+        // Hide every real player from the viewer so the scene only shows
+        // ghost armor stands — otherwise the live target stands next to
+        // the replay-ghost and it's impossible to tell them apart.
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other.getUniqueId().equals(viewer.getUniqueId())) continue;
+            viewer.hidePlayer(plugin, other);
+            hiddenPlayers.add(other.getUniqueId());
+        }
+
         // Anchor the viewer near the primary player's first frame so the
         // scene is visible immediately.
         records.stream()
-                .filter(r -> r.type() == de.eternal.replay.model.Recordable.Type.MOVEMENT
-                        && r.payload() instanceof MovementFrame mf && mf.playerIdx() == 0)
+                .filter(r -> r.type() == de.eternal.replay.model.Recordable.Type.MOVEMENT && r.playerIdx() == 0)
                 .findFirst()
                 .ifPresent(r -> {
                     MovementFrame mf = (MovementFrame) r.payload();
@@ -106,6 +147,8 @@ public final class PlaybackSession {
         HotbarControls.install(viewer);
         lastTickMs = System.currentTimeMillis();
         tickTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, this::tick, 1L, 1L);
+        log.info("Playback started for replay #" + handle.id()
+                + " (" + records.size() + " records, playhead starts at " + playheadMs + "ms)");
     }
 
     public void stop() {
@@ -115,9 +158,20 @@ public final class PlaybackSession {
         }
         for (GhostEntity g : ghosts.values()) g.remove();
         ghosts.clear();
+        // Restore visibility of all players we'd hidden during playback.
+        if (plugin != null) {
+            for (UUID uuid : hiddenPlayers) {
+                Player p = Bukkit.getPlayer(uuid);
+                if (p != null) viewer.showPlayer(plugin, p);
+            }
+        }
+        hiddenPlayers.clear();
         viewer.getInventory().setContents(savedInventory);
         viewer.teleport(savedLocation);
         viewer.setGameMode(savedGameMode);
+        viewer.setAllowFlight(savedAllowFlight);
+        viewer.setFlying(savedFlying);
+        viewer.setInvulnerable(savedInvulnerable);
         onEnd.run();
     }
 
@@ -127,12 +181,17 @@ public final class PlaybackSession {
     }
 
     public void seek(long deltaMs) {
-        playheadMs = Math.max(0, playheadMs + deltaMs);
+        // Floor at the first record's timestamp (NOT 0) — anything before
+        // that has no data and would freeze the loop.
+        long minMs = records.isEmpty() ? 0 : records.get(0).relativeMs();
+        long maxMs = records.isEmpty() ? 0 : records.get(records.size() - 1).relativeMs();
+        playheadMs = Math.max(minMs, Math.min(maxMs, playheadMs + deltaMs));
         cursor = 0;
         // Wipe ghosts so the next tick respawns them at the right frame.
         for (GhostEntity g : ghosts.values()) g.remove();
         ghosts.clear();
-        viewer.sendMessage("§dReplay §8» §7Sprung auf §f" + (playheadMs / 1000) + "s§7.");
+        long shown = records.isEmpty() ? 0 : (playheadMs - records.get(0).relativeMs()) / 1000;
+        viewer.sendMessage("§dReplay §8» §7Sprung auf §f" + shown + "s§7.");
     }
 
     public void changeSpeed(double delta) {
