@@ -73,15 +73,40 @@ export class AppealShortenDialogComponent {
   duration = '0s';
   selectedTemplateId = '';
 
+  /** Hard-coded Notfall-Templates wenn die API noch nichts liefert
+   *  (reasons.yml leer, API noch nicht restarted, alte API-Version).
+   *  Stellt sicher dass die Vorlagen-Dropdown nie leer ist. */
+  private static readonly DEFAULT_TEMPLATES: ReadonlyArray<{ id: string; label: string; durationSeconds: number; message: string }> = [
+    { id: 'immediate', label: 'Sofort entbannen', durationSeconds: 0, message: '' },
+    { id: '1h',  label: 'Auf 1 Stunde verkürzen',   durationSeconds: 3600,   message: '' },
+    { id: '6h',  label: 'Auf 6 Stunden verkürzen',  durationSeconds: 21600,  message: '' },
+    { id: '1d',  label: 'Auf 1 Tag verkürzen',      durationSeconds: 86400,  message: '' },
+    { id: '3d',  label: 'Auf 3 Tage verkürzen',     durationSeconds: 259200, message: '' },
+    { id: '7d',  label: 'Auf 1 Woche verkürzen',    durationSeconds: 604800, message: '' },
+    { id: '14d', label: 'Auf 2 Wochen verkürzen',   durationSeconds: 1209600,message: '' },
+    { id: '30d', label: 'Auf 30 Tage verkürzen',    durationSeconds: 2592000,message: '' }
+  ];
+
   constructor(
-    @Inject(MAT_DIALOG_DATA) public readonly data: AppealShortenDialogData,
+    @Inject(MAT_DIALOG_DATA) data: AppealShortenDialogData,
     private readonly ref: MatDialogRef<AppealShortenDialogComponent, AppealShortenResult>
   ) {
-    if (data.templates.length > 0) {
-      this.selectedTemplateId = data.templates[0].id;
+    // Wenn der Aufrufer keine Templates mitgibt (API-Roundtrip noch nicht
+    // durch / API liefert leer), nehmen wir den hardcoded Default — die
+    // Mod soll IMMER eine Auswahl haben.
+    const templates = (data.templates && data.templates.length > 0)
+        ? data.templates
+        : [...AppealShortenDialogComponent.DEFAULT_TEMPLATES];
+    this.data = { ...data, templates };
+    if (this.data.templates.length > 0) {
+      this.selectedTemplateId = this.data.templates[0].id;
       this.applyTemplate();
     }
   }
+
+  /** Re-declare data so the constructor can build it from the input +
+   *  fallback. The mat-template still reads data.templates as before. */
+  public readonly data: AppealShortenDialogData;
 
   applyTemplate() {
     const t = this.data.templates.find(x => x.id === this.selectedTemplateId);

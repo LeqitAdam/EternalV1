@@ -350,14 +350,28 @@ public final class SqlStorage implements EternalStorage {
 
     /** Idempotent ALTER fuer die Decision-Message + shortened-to-seconds am Appeal. */
     private void migrateAddAppealDecisionMessage(@NotNull Connection c) throws SQLException {
-        for (String stmt : new String[]{
-                isSqlite()
-                        ? "ALTER TABLE eternal_unban_appeals ADD COLUMN decision_message TEXT"
-                        : "ALTER TABLE eternal_unban_appeals ADD COLUMN decision_message TEXT NULL",
-                "ALTER TABLE eternal_unban_appeals ADD COLUMN shortened_to_seconds BIGINT"
-        }) {
-            try (Statement st = c.createStatement()) { st.execute(stmt); }
-            catch (SQLException ignored) { /* already exists */ }
+        // Loggen statt stummem catch — wenn die Migration mal aus anderen
+        // Gruenden scheitert (Permissions, syntax, falsche Tabelle) wollen
+        // wir das im Server-Log sehen, nicht erst beim naechsten UPDATE.
+        runIdempotent(c, "ALTER TABLE eternal_unban_appeals ADD COLUMN decision_message "
+                + (isSqlite() ? "TEXT" : "TEXT NULL"));
+        runIdempotent(c, "ALTER TABLE eternal_unban_appeals ADD COLUMN shortened_to_seconds BIGINT");
+    }
+
+    /** Idempotent migration helper: runs the statement, swallows "duplicate
+     *  column" errors (the normal idempotent case), and logs anything
+     *  else so a broken migration is visible at startup instead of
+     *  surfacing later as a cryptic UPDATE failure. */
+    private void runIdempotent(@NotNull Connection c, @NotNull String stmt) {
+        try (Statement st = c.createStatement()) { st.execute(stmt); }
+        catch (SQLException ex) {
+            String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+            boolean dupColumn = msg.contains("duplicate column")
+                    || msg.contains("already exists")
+                    || msg.contains("duplicate key name");
+            if (!dupColumn) {
+                System.err.println("[Eternal-Migration] " + stmt + " -> " + ex.getMessage());
+            }
         }
     }
 
