@@ -1,4 +1,4 @@
-import { Component, Inject, signal } from '@angular/core';
+import { Component, Inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -20,9 +20,9 @@ export interface AppealShortenResult {
 }
 
 /**
- * Verkürzen-Dialog v2 — keine Nachricht mehr, Dauer als String (kein
- * Sekunden-Rechnen). Templates füllen die Dauer voraus; Mod kann sie
- * frei überschreiben.
+ * Verkürzen-Dialog. Plain properties (kein Signal) damit two-way-binding
+ * mit ngModel + mat-input einwandfrei funktioniert — Signals + ngModel
+ * vertragen sich nicht ohne extra Wiring.
  */
 @Component({
   selector: 'et-appeal-shorten-dialog',
@@ -47,21 +47,30 @@ export interface AppealShortenResult {
         <input matInput [(ngModel)]="duration" placeholder="z.B. 1d, 6h, 30m, permanent" />
         <mat-hint>
           Syntax: <code>1d</code>=1&nbsp;Tag, <code>6h</code>=6&nbsp;Std., <code>30m</code>=30&nbsp;Min.,
-          <code>0s</code>=sofort entbannen, <code>permanent</code>=nicht ändern (selten sinnvoll).
+          <code>0s</code>=sofort entbannen, <code>permanent</code>=nicht ändern.
         </mat-hint>
+        <mat-error *ngIf="!isValid()">Ungültiges Format. Beispiele: <code>1d</code>, <code>12h</code>, <code>30m</code>, <code>permanent</code>.</mat-error>
       </mat-form-field>
+
+      <div class="text-sm text-ink-300" *ngIf="isValid() && parsedSeconds() >= 0">
+        Resultat: Bann läuft in {{ humanise(parsedSeconds()) }} ab.
+      </div>
+      <div class="text-sm text-ink-300" *ngIf="isValid() && parsedSeconds() < 0">
+        Resultat: permanent — Bann wird nicht verkürzt (nur Antrag-Status setzen).
+      </div>
 
     </mat-dialog-content>
 
     <mat-dialog-actions align="end">
       <button mat-button (click)="cancel()">Abbrechen</button>
-      <button mat-flat-button color="primary" (click)="confirm()"
-              [disabled]="!duration().trim()">Verkürzen</button>
+      <button mat-flat-button color="primary" (click)="confirm()" [disabled]="!isValid()">
+        Verkürzen
+      </button>
     </mat-dialog-actions>
   `
 })
 export class AppealShortenDialogComponent {
-  readonly duration = signal<string>('0s');
+  duration = '0s';
   selectedTemplateId = '';
 
   constructor(
@@ -77,12 +86,39 @@ export class AppealShortenDialogComponent {
   applyTemplate() {
     const t = this.data.templates.find(x => x.id === this.selectedTemplateId);
     if (!t) return;
-    // Template-durationSeconds zurück in lesbaren String konvertieren —
-    // der Mod kann ihn dann frei überschreiben.
-    this.duration.set(this.secondsToString(t.durationSeconds));
+    this.duration = this.secondsToString(t.durationSeconds);
   }
 
-  /** 86400→"1d", 3600→"1h", 60→"1m", 0→"0s". */
+  /** Same DurationParser-Syntax wie Backend — 1d, 6h, 30m, 7d… etc.
+   *  Kombinationen wie "1d 12h" werden NICHT unterstützt (würde im
+   *  Backend zwar parsen, aber Templates erzeugen sie nicht). */
+  parsedSeconds(): number {
+    const s = this.duration.trim().toLowerCase();
+    if (!s) return Number.NaN;
+    if (s === 'permanent' || s === 'perm' || s === 'forever' || s === '-1') return -1;
+    const m = s.match(/^(\d+)([smhdwy])$/);
+    if (!m) return Number.NaN;
+    const value = Number(m[1]);
+    const mult: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400, w: 604800, y: 31536000 };
+    return value * mult[m[2]];
+  }
+
+  isValid(): boolean {
+    return !Number.isNaN(this.parsedSeconds());
+  }
+
+  humanise(s: number): string {
+    if (s <= 0) return 'sofort';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const parts: string[] = [];
+    if (d) parts.push(`${d}d`);
+    if (h) parts.push(`${h}h`);
+    if (m) parts.push(`${m}m`);
+    return parts.length ? parts.join(' ') : `${s}s`;
+  }
+
   private secondsToString(s: number): string {
     if (s < 0) return 'permanent';
     if (s === 0) return '0s';
@@ -93,5 +129,8 @@ export class AppealShortenDialogComponent {
   }
 
   cancel() { this.ref.close(); }
-  confirm() { this.ref.close({ duration: this.duration().trim() }); }
+  confirm() {
+    if (!this.isValid()) return;
+    this.ref.close({ duration: this.duration.trim() });
+  }
 }
