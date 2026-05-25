@@ -59,6 +59,8 @@ public final class EternalSpigot extends JavaPlugin {
     private CloudPermsAccess cloudPerms;
     private de.eternal.spigot.listener.CloudNetBridgeListener cloudNetBridge;
     private ReportListGui reportGui;
+    private de.eternal.spigot.report.ReportReasonGui reportReasonGui;
+    private de.eternal.spigot.command.ReportCommand reportCommandRef;
     private BungeeChannelBridge bungeeBridge;
     private ReportActions reportActions;
     private ApiBridge apiBridge;
@@ -158,6 +160,7 @@ public final class EternalSpigot extends JavaPlugin {
                 getLogger().info("CloudNet-Bruecke aktiv — Gruppen-Mapping aus config.yml.");
             }
             this.reportGui = new ReportListGui(this);
+            this.reportReasonGui = new de.eternal.spigot.report.ReportReasonGui(this);
             this.bungeeBridge = new BungeeChannelBridge(this);
             this.reportActions = new ReportActions(this, bungeeBridge);
         }
@@ -239,7 +242,8 @@ public final class EternalSpigot extends JavaPlugin {
         bind("unban", new UnbanCommand(this));
         bind("mute", new MuteCommand(this));
         bind("unmute", new UnmuteCommand(this));
-        bind("report", new ReportCommand(this));
+        this.reportCommandRef = new ReportCommand(this);
+        bind("report", reportCommandRef);
         bind("reportsystem", new ReportSystemCommand(this));
         bind("lookup", new LookupCommand(this));
         bind("history", new HistoryCommand(this));
@@ -259,6 +263,8 @@ public final class EternalSpigot extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ConnectionListener(this), this);
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
         getServer().getPluginManager().registerEvents(new ReportGuiListener(this, reportGui, reportActions), this);
+        getServer().getPluginManager().registerEvents(
+                new de.eternal.spigot.report.ReportReasonGuiListener(this, reportReasonGui, reportCommandRef.cooldownMap()), this);
     }
 
     /* ----------------------------------------------------------------- */
@@ -274,6 +280,7 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull OnlineStaffRegistry staff() { return staffRegistry; }
     public @NotNull CloudPermsAccess cloudPerms() { return cloudPerms; }
     public @NotNull ReportListGui reportGui() { return reportGui; }
+    public @NotNull de.eternal.spigot.report.ReportReasonGui reportReasonGui() { return reportReasonGui; }
     public @NotNull ReportActions reportActions() { return reportActions; }
     public @NotNull BungeeChannelBridge bungeeBridge() { return bungeeBridge; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }

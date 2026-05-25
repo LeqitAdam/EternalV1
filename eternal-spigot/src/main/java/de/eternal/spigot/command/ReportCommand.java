@@ -23,11 +23,19 @@ public final class ReportCommand implements CommandExecutor {
 
     private final EternalSpigot plugin;
     private final TargetResolver resolver;
+    /** Shared cooldown map — also consulted by the GUI click listener so
+     *  spam-clicking through the inventory can't bypass the rate limit. */
     private final ConcurrentHashMap<UUID, Long> lastReport = new ConcurrentHashMap<>();
 
     public ReportCommand(@NotNull EternalSpigot plugin) {
         this.plugin = plugin;
         this.resolver = new TargetResolver(plugin.storage());
+    }
+
+    /** Exposed so {@link de.eternal.spigot.report.ReportReasonGuiListener}
+     *  shares the same cooldown bookkeeping. */
+    public @NotNull ConcurrentHashMap<UUID, Long> cooldownMap() {
+        return lastReport;
     }
 
     @Override
@@ -69,9 +77,11 @@ public final class ReportCommand implements CommandExecutor {
             }
             var target = maybe.get();
 
-            // No reason → print the list and exit
+            // No reason → open the GUI on the main thread and stop.
+            // Chat-based reason list is gone; GUI is the user-facing flow.
             if (args.length < 2) {
-                Bukkit.getScheduler().runTask(plugin, () -> sendReasonList(reporter, target.name()));
+                Bukkit.getScheduler().runTask(plugin, () ->
+                        plugin.reportReasonGui().open(reporter, target.uuid(), target.name()));
                 return;
             }
 

@@ -61,16 +61,28 @@ public final class ConnectionListener implements Listener {
         String group = groups.isEmpty()
                 ? ChatColor.stripColor(p.getDisplayName())
                 : groups.get(0);
-        // DisplayName as produced by CloudNet-Chat / nametag plugins. Captured
-        // here on the main thread (chat-plugins typically set it during their
-        // own join listener — we run at MONITOR, so the formatted version is
-        // already in place) and persisted so /lookup can show a rank-coloured
-        // header even when the target is offline.
+        // DisplayName as produced by CloudNet-Chat / nametag plugins. We
+        // capture it twice: once now (MONITOR, in case the chat plugin used
+        // LOW/NORMAL priority and already finished), and again 2 seconds
+        // later (in case the chat plugin defers its work to an async task or
+        // a later tick). The second capture overrides the first via the
+        // COALESCE-style upsert in SqlStorage — non-empty wins.
         String displayName = p.getDisplayName();
 
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             plugin.storage().recordProfile(p.getUniqueId(), p.getName(), addr, tier, group, displayName);
             long sessionId = plugin.storage().startSession(p.getUniqueId(), p.getName(), addr);
+            // Re-capture display 40 ticks (~2s) later so deferred chat-plugin
+            // formatters can finish before we lock in the cached value.
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (!p.isOnline()) return;
+                String later = p.getDisplayName();
+                List<String> g2 = plugin.cloudPerms().groupsOf(p.getUniqueId());
+                String group2 = g2.isEmpty() ? ChatColor.stripColor(later) : g2.get(0);
+                plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
+                        plugin.storage().recordProfile(p.getUniqueId(), p.getName(), addr,
+                                Tiers.of(p), group2, later));
+            }, 40L);
             activeSessions.put(p.getUniqueId(), sessionId);
         });
     }

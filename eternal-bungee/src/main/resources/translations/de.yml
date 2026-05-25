@@ -42,6 +42,10 @@ reportsystem-already-closed: "{prefix}&7Report &f#{id}&7 ist bereits geschlossen
 
 # GUI
 gui-reports-title: "&dOffene Reports"
+# /report GUI - Reason-Auswahl
+gui-report-reasons-title: "&dReport &8» &f{target}"
+gui-report-reasons-name: "&f{label}"
+gui-report-reasons-lore-click: "&8» &7Klick zum Reporten"
 gui-reports-name: "&e#{id} &7- &f{target}"
 gui-reports-lore-reason: "&7Grund: &f{reason}"
 gui-reports-lore-reporter: "&7Reporter: &f{reporter}"

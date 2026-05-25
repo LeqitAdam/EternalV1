@@ -29,6 +29,9 @@ reportsystem-taken-over-by: "{prefix}&cYour report &f#{id}&c was taken over by &
 reportsystem-already-closed: "{prefix}&7Report &f#{id}&7 is already closed."
 
 gui-reports-title: "&dOpen Reports"
+gui-report-reasons-title: "&dReport &8» &f{target}"
+gui-report-reasons-name: "&f{label}"
+gui-report-reasons-lore-click: "&8» &7Click to report"
 gui-reports-name: "&e#{id} &7- &f{target}"
 gui-reports-lore-reason: "&7Reason: &f{reason}"
 gui-reports-lore-reporter: "&7Reporter: &f{reporter}"
