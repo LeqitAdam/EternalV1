@@ -44,10 +44,24 @@ public interface ReplayApi {
 
     /**
      * Stop the trailing follow-up recording for {@code replayId} and
-     * persist the buffer to disk. After this call the replay is
-     * read-only and discoverable via {@link #findBySource}.
+     * persist the buffer to disk asynchronously. After this call the
+     * replay is read-only and discoverable via {@link #findBySource}
+     * once the async write finishes.
      */
     void endCapture(long replayId);
+
+    /**
+     * Synchronous variant of {@link #endCapture(long)}. Blocks the
+     * calling thread until the replay file has been written and indexed,
+     * then returns the resolved handle. Returns empty when there was no
+     * in-flight capture for this id.
+     *
+     * <p>Used by the report-system "Annehmen" flow so the mod can be
+     * teleported into the freshly-frozen replay in a single round trip.
+     * Slightly more expensive than the fire-and-forget variant — a small
+     * replay persists in ~10-50ms.</p>
+     */
+    @NotNull Optional<ReplayHandle> endCaptureBlocking(long replayId);
 
     /** Looks up a stored replay by its id (post-{@link #endCapture}). */
     @NotNull Optional<ReplayHandle> findReplay(long replayId);

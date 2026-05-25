@@ -4,3 +4,14 @@ main: de.eternal.replay.EternalReplay
 api-version: 1.19
 author: Eternal
 description: Standalone replay system. Records player actions and lets staff view recorded scenes via ghost entities and hotbar controls.
+
+commands:
+  replay:
+    description: Diagnose- und Steuerung-Command fuer Replays.
+    usage: /replay <status|list|play <id>|exit>
+    permission: eternal.replay.debug
+
+permissions:
+  eternal.replay.debug:
+    description: Erlaubt /replay-Subcommands (status, list, play, exit).
+    default: op

@@ -4,6 +4,10 @@ main: de.eternal.spigot.EternalSpigot
 api-version: '1.19'
 author: Eternal
 description: Eternal Ban-/Mute-/Report-System (Spigot)
+# EternalReplay liefert die ReplayApi als Bukkit-Service. Soft-depend
+# sorgt fuer korrekte Load-Reihenfolge + entfernt die Warnung
+# "Loaded class ... which is not a depend or softdepend".
+softdepend: [EternalReplay]
 
 commands:
   ban:

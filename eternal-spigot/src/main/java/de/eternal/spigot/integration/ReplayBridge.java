@@ -82,10 +82,19 @@ public final class ReplayBridge {
     }
 
     /** Try to teleport the mod into the recorded replay for {@code reportId}.
-     *  Returns false when there's no replay available — caller should fall
-     *  back to a live teleport. */
+     *  If the capture is still in-flight (mod accepted before the report
+     *  was closed) we flush it synchronously so the replay becomes loadable
+     *  in this same call. Returns false when no recording exists at all —
+     *  caller should fall back to a live teleport. */
     public boolean tryPlayForReport(@NotNull Player mod, long reportId) {
         if (!isAvailable()) return false;
+        // If we're still recording, finish on the spot so play() has a
+        // file to read. This is the common path: mod accepts a fresh
+        // report → capture has been running ~30s → flush → play.
+        Long inFlightId = inFlight.remove(reportId);
+        if (inFlightId != null) {
+            api.endCaptureBlocking(inFlightId);
+        }
         Optional<de.eternal.replay.api.ReplayHandle> maybe =
                 api.findBySource(ReplayKind.REPORT, String.valueOf(reportId));
         if (maybe.isEmpty()) return false;

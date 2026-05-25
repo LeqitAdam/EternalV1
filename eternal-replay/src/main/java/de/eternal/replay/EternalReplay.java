@@ -53,6 +53,11 @@ public final class EternalReplay extends JavaPlugin {
         getServer().getServicesManager().register(ReplayApi.class, api, this, ServicePriority.Normal);
         getServer().getPluginManager().registerEvents(
                 new PlaybackListener(api, p -> api.sessionOf(p)), this);
+        // /replay command for diagnostics — exposes buffer state + list of
+        // persisted files, useful when verifying recording is actually
+        // happening on a new install.
+        var cmd = getCommand("replay");
+        if (cmd != null) cmd.setExecutor(new de.eternal.replay.internal.ReplayCommand(api, recorder));
 
         getLogger().info("EternalReplay aktiv — retention " + (retentionMs / 1000) + "s, "
                 + "frame interval " + frameIntervalTicks + " ticks");

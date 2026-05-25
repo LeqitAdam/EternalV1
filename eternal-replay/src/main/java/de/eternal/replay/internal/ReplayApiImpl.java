@@ -89,6 +89,20 @@ public final class ReplayApiImpl implements ReplayApi {
     public void endCapture(long replayId) {
         PendingCapture pc = pending.remove(replayId);
         if (pc == null) return;
+        // Persist async — recorders shouldn't be blocked by disk I/O.
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> persistNow(replayId, pc));
+    }
+
+    @Override
+    public @NotNull Optional<de.eternal.replay.api.ReplayHandle> endCaptureBlocking(long replayId) {
+        PendingCapture pc = pending.remove(replayId);
+        if (pc == null) return Optional.empty();
+        return Optional.ofNullable(persistNow(replayId, pc));
+    }
+
+    /** Single source-of-truth for the persist step — used both async
+     *  (fire-and-forget) and sync (block until on disk + indexed). */
+    private @org.jetbrains.annotations.Nullable de.eternal.replay.api.ReplayHandle persistNow(long replayId, @NotNull PendingCapture pc) {
         // Merge the initial snapshot with everything that landed in the
         // buffer SINCE captureWindow — that's the "follow-up" segment.
         Map<UUID, List<Recordable>> finalRecords = new HashMap<>(pc.initialBuffers);
@@ -101,28 +115,24 @@ public final class ReplayApiImpl implements ReplayApi {
                 continue;
             }
             int initialSize = initial.size();
-            // Append only the truly new records (anything after the last
-            // initial event's relativeMs). Cheap for ring buffers since
-            // their newest entries are always at the tail.
             int lastRelMs = initialSize > 0 ? initial.get(initialSize - 1).relativeMs() : -1;
             for (Recordable r : latest) {
                 if (r.relativeMs() > lastRelMs) initial.add(r);
             }
             finalRecords.put(buf.uuid(), initial);
         }
-
         String primaryName = pc.playerNames.getOrDefault(pc.primaryUuid, pc.primaryUuid.toString());
-        // Persist async — recorders shouldn't be blocked by disk I/O.
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                store.persist(pc.kind, pc.sourceId, serverName,
-                        pc.primaryUuid, primaryName, pc.playerNames, finalRecords,
-                        Instant.ofEpochMilli(pc.startedAt), Instant.now());
-                log.info("Replay " + replayId + " persisted (" + pc.kind + ", source=" + pc.sourceId + ")");
-            } catch (IOException ex) {
-                log.log(Level.WARNING, "Failed to persist replay " + replayId, ex);
-            }
-        });
+        try {
+            var handle = store.persist(pc.kind, pc.sourceId, serverName,
+                    pc.primaryUuid, primaryName, pc.playerNames, finalRecords,
+                    Instant.ofEpochMilli(pc.startedAt), Instant.now());
+            log.info("Replay " + handle.id() + " persisted (" + pc.kind + ", source=" + pc.sourceId
+                    + ", " + handle.fileSizeBytes() + " bytes)");
+            return handle;
+        } catch (IOException ex) {
+            log.log(Level.WARNING, "Failed to persist replay (pending id " + replayId + ")", ex);
+            return null;
+        }
     }
 
     @Override
