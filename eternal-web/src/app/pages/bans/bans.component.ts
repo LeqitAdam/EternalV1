@@ -8,6 +8,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { Punishment } from '../../core/models';
@@ -20,7 +21,7 @@ import { TextPromptDialogComponent, TextPromptDialogData }
   imports: [
     CommonModule, DatePipe, MatCardModule, MatButtonModule, MatIconModule,
     MatProgressSpinnerModule, MatTableModule, MatSnackBarModule, MatDialogModule,
-    MatTooltipModule
+    MatTooltipModule, LegacyTextPipe
   ],
   template: `
     <h1 class="text-3xl font-bold mb-2">Aktive Bans</h1>
@@ -48,7 +49,10 @@ import { TextPromptDialogComponent, TextPromptDialogData }
 
         <ng-container matColumnDef="issuer">
           <th mat-header-cell *matHeaderCellDef class="!text-ink-300">Von</th>
-          <td mat-cell *matCellDef="let b">{{ b.issuerName }}</td>
+          <!-- Rank-coloured DisplayName from the displayNames map; falls
+               back to plain name when no profile is cached. -->
+          <td mat-cell *matCellDef="let b"
+              [innerHTML]="(displayFor(b.issuerUuid) || b.issuerName) | legacy"></td>
         </ng-container>
 
         <ng-container matColumnDef="when">
@@ -104,10 +108,17 @@ export class BansComponent {
   readonly cols = ['id', 'target', 'reason', 'issuer', 'when', 'expires', 'actions'];
   /** id -> adminOnly, populated once from /reasons so we can grey-out pardon. */
   private readonly adminReasons = new Set<number>();
+  /** uuid -> &-coded display, from /bans payload. Used to render the
+   *  "Von" column with rank-coloured names. */
+  readonly displayNames = signal<Record<string, string>>({});
 
   constructor() {
     this.api.bans().subscribe({
-      next: b => { this.bans.set(b); this.loading.set(false); },
+      next: res => {
+        this.bans.set(res.bans);
+        this.displayNames.set(res.displayNames ?? {});
+        this.loading.set(false);
+      },
       error: () => this.loading.set(false)
     });
     this.api.reasons().subscribe({
@@ -119,6 +130,11 @@ export class BansComponent {
   isAdminBan(b: Punishment): boolean {
     const idNum = Number(b.reasonId);
     return Number.isFinite(idNum) && this.adminReasons.has(idNum);
+  }
+
+  /** Cached &-coded display for an issuer UUID, or null if we have none. */
+  displayFor(uuid: string | null): string | null {
+    return uuid ? (this.displayNames()[uuid] ?? null) : null;
   }
 
   pardon(b: Punishment) {

@@ -19,17 +19,20 @@ type HistoryRow = {
   reasonLabel: string;
   staffName: string;
   staffUuid: string | null;
-  /** Cached &-coded display string for the staff/reporter, when known.
-   *  Resolved on the fly from staffDisplayByUuid in the component. */
+  /** Resolved from PlayerLookup.displayNames on the fly. Null when the
+   *  staff hasn't been seen ingame with our MONITOR listener yet. */
   staffDisplay: string | null;
   issuedAt: number;
   expiresAt: number | null;
   active: boolean;
   pardonReason: string | null;
   pardonByName: string | null;
+  /** Same lookup, for the staff that pardoned the punishment. */
+  pardonByDisplay: string | null;
   pardonedAt: number | null;
   modifiedAt: number | null;
   modifiedByName: string | null;
+  modifiedByDisplay: string | null;
   reportStatus?: 'OPEN' | 'CLAIMED' | 'CLOSED';
 };
 
@@ -125,7 +128,8 @@ type HistoryRow = {
                 <span class="text-eternal-300">Aufgehoben:</span>
                 <span class="ml-2 font-mono">{{ row.pardonedAt | date:fmt }}</span>
                 <span *ngIf="row.pardonByName" class="ml-2 text-ink-300">durch</span>
-                <span *ngIf="row.pardonByName" class="ml-1">{{ row.pardonByName }}</span>
+                <span *ngIf="row.pardonByName" class="ml-1"
+                      [innerHTML]="(row.pardonByDisplay || row.pardonByName) | legacy"></span>
                 <span *ngIf="row.pardonReason" class="ml-2 text-ink-300 italic">„{{ row.pardonReason }}"</span>
               </div>
 
@@ -134,7 +138,8 @@ type HistoryRow = {
                 <span class="text-amber-400">Nachträglich geändert</span>
                 <span class="ml-2 font-mono text-ink-300">{{ row.modifiedAt | date:fmt }}</span>
                 <span *ngIf="row.modifiedByName" class="ml-2 text-ink-300">durch</span>
-                <span *ngIf="row.modifiedByName" class="ml-1">{{ row.modifiedByName }}</span>
+                <span *ngIf="row.modifiedByName" class="ml-1"
+                      [innerHTML]="(row.modifiedByDisplay || row.modifiedByName) | legacy"></span>
               </div>
             </div>
           </div>
@@ -169,24 +174,28 @@ export class PlayerDetailComponent implements OnChanges {
 
   /** Merges bans/mutes and reports into a single, time-sorted list. */
   rows(d: PlayerLookup): HistoryRow[] {
+    // Backed by the server-provided displayNames map. Returns the cached
+    // &-coded string or null when we have no profile for that UUID.
+    const display = (uuid: string | null | undefined): string | null =>
+      uuid ? (d.displayNames?.[uuid] ?? null) : null;
+
     const fromPunishment = (p: Punishment): HistoryRow => ({
       kind: p.type,
       id: p.id,
       reasonLabel: p.reasonLabel,
       staffName: p.issuerName,
       staffUuid: p.issuerUuid,
-      // DisplayName-lookup-by-uuid would require an extra round-trip per
-      // unique issuer; we leave it null for now and let the legacy pipe
-      // fall back to the plain staffName. Fix when batched lookup lands.
-      staffDisplay: null,
+      staffDisplay: display(p.issuerUuid),
       issuedAt: p.issuedAt,
       expiresAt: p.expiresAt,
       active: p.active,
       pardonReason: p.pardonReason,
       pardonByName: p.pardonIssuerName,
+      pardonByDisplay: display(p.pardonIssuerUuid),
       pardonedAt: p.pardonedAt,
       modifiedAt: p.modifiedAt,
-      modifiedByName: p.modifiedByName
+      modifiedByName: p.modifiedByName,
+      modifiedByDisplay: display(p.modifiedByUuid)
     });
     const fromReport = (r: Report): HistoryRow => ({
       kind: 'REPORT',
@@ -194,15 +203,17 @@ export class PlayerDetailComponent implements OnChanges {
       reasonLabel: r.reasonLabel,
       staffName: r.reporterName,
       staffUuid: r.reporterUuid,
-      staffDisplay: null,
+      staffDisplay: display(r.reporterUuid),
       issuedAt: r.createdAt,
       expiresAt: null,
       active: r.status !== 'CLOSED',
       pardonReason: null,
       pardonByName: null,
+      pardonByDisplay: null,
       pardonedAt: null,
       modifiedAt: null,
       modifiedByName: null,
+      modifiedByDisplay: null,
       reportStatus: r.status
     });
     // Oldest first → newest at the bottom of the list, mirroring the

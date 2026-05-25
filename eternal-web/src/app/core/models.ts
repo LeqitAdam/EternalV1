@@ -57,6 +57,9 @@ export interface PlayerProfile {
 
 export interface PlayerLookup {
   profile: PlayerProfile;
+  /** uuid → cached lastDisplayName for every staff/reporter/modifier UUID
+   *  referenced in the history + reports. Empty entries are omitted. */
+  displayNames: Record<string, string>;
   activeBan: Punishment | null;
   activeMute: Punishment | null;
   history: Punishment[];

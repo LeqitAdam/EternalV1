@@ -242,7 +242,47 @@ public final class Routes {
         out.put("activeMute", activeMute);
         out.put("history", history);
         out.put("reports", reports);
+        // Side-channel: maps every issuer/reporter/modifier/pardon-issuer
+        // UUID referenced above to their cached lastDisplayName. The
+        // dashboard reads from this so the Staff/Reporter columns can show
+        // the rank-coloured form instead of plain names. Same shape used by
+        // all endpoints that return punishment/report lists.
+        out.put("displayNames", collectDisplayNames(history, reports, activeBan, activeMute));
         ctx.json(out);
+    }
+
+    /**
+     * Builds a {@code uuid → lastDisplayName} map covering every staff-ish
+     * UUID referenced in the given collections. Empty/missing entries are
+     * omitted, so the client can {@code obj.displayNames[uuid] ?? name}.
+     */
+    private @NotNull Map<String, String> collectDisplayNames(
+            @NotNull java.util.Collection<PunishmentEntry> punishments,
+            @NotNull java.util.Collection<ReportEntry> reports,
+            PunishmentEntry... extras) {
+        java.util.Set<UUID> uuids = new java.util.HashSet<>();
+        for (PunishmentEntry p : punishments) {
+            if (p.issuerUuid() != null)       uuids.add(p.issuerUuid());
+            if (p.pardonIssuerUuid() != null) uuids.add(p.pardonIssuerUuid());
+            if (p.modifiedByUuid() != null)   uuids.add(p.modifiedByUuid());
+        }
+        for (ReportEntry r : reports) {
+            uuids.add(r.reporterUuid());
+            if (r.handlerUuid() != null) uuids.add(r.handlerUuid());
+        }
+        for (PunishmentEntry p : extras) {
+            if (p == null) continue;
+            if (p.issuerUuid() != null)       uuids.add(p.issuerUuid());
+            if (p.pardonIssuerUuid() != null) uuids.add(p.pardonIssuerUuid());
+            if (p.modifiedByUuid() != null)   uuids.add(p.modifiedByUuid());
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (UUID u : uuids) {
+            storage.findProfile(u).ifPresent(pp -> {
+                if (!pp.lastDisplayName().isBlank()) out.put(u.toString(), pp.lastDisplayName());
+            });
+        }
+        return out;
     }
 
     private void playerHistory(@NotNull Context ctx) {
@@ -262,7 +302,10 @@ public final class Routes {
 
     private void listActiveBans(@NotNull Context ctx) {
         auth.requireStaff(ctx);
-        ctx.json(storage.findAllActive(PunishmentType.BAN));
+        var bans = storage.findAllActive(PunishmentType.BAN);
+        ctx.json(Map.of(
+                "bans", bans,
+                "displayNames", collectDisplayNames(bans, java.util.List.of())));
     }
 
     private void listActiveMutes(@NotNull Context ctx) {

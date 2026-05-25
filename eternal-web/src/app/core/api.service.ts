@@ -31,7 +31,9 @@ export class ApiService {
 
   /* --- data ----------------------------------------------------------- */
 
-  bans(): Observable<Punishment[]> { return this.http.get<Punishment[]>(this.url('/bans')); }
+  bans(): Observable<{ bans: Punishment[]; displayNames: Record<string, string> }> {
+    return this.http.get<{ bans: Punishment[]; displayNames: Record<string, string> }>(this.url('/bans'));
+  }
   mutes(): Observable<Punishment[]> { return this.http.get<Punishment[]>(this.url('/mutes')); }
   reports(status: ReportStatusFilter = 'active', limit = 100, offset = 0): Observable<ReportPage> {
     const qs = `?status=${status}&limit=${limit}&offset=${offset}`;
