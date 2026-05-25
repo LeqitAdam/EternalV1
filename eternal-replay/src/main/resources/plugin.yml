@@ -1,0 +1,6 @@
+name: EternalReplay
+version: ${project.version}
+main: de.eternal.replay.EternalReplay
+api-version: 1.19
+author: Eternal
+description: Standalone replay system. Records player actions and lets staff view recorded scenes via ghost entities and hotbar controls.

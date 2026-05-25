@@ -56,6 +56,9 @@ public final class ReportActions {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             boolean ok = plugin.reports().close(reportId, resolution);
             Bukkit.getScheduler().runTask(plugin, () -> {
+                // Flush the in-flight replay to disk so it's searchable
+                // post-close. No-op when EternalReplay isn't installed.
+                if (ok) plugin.replayBridge().endCaptureForReport(reportId);
                 if (ok) plugin.messages().send(mod, "reportsystem-closed", "id", reportId);
                 else plugin.messages().send(mod, "reportsystem-not-found");
             });
@@ -160,11 +163,21 @@ public final class ReportActions {
     }
 
     /**
-     * Tries local-first, then cross-server via Bungee plugin-messaging.
-     * Cross-server: queues a TELEPORT action; the destination Spigot's
-     * ActionPoller picks it up once the mod arrives and finishes the teleport.
+     * Tries replay-first, then local-live, then cross-server via Bungee
+     * plugin-messaging. Replay teleport is the new default once
+     * EternalReplay is installed: instead of TP'ing to the live player
+     * (who may have logged off, moved, or hidden the evidence), the mod
+     * is dropped into the recorded scene with ghost entities replaying
+     * the action.
+     *
+     * <p>Falls through to the existing live-TP behavior when the replay
+     * service isn't registered or the report has no replay attached.</p>
      */
     private void teleport(@NotNull Player mod, @NotNull ReportEntry report) {
+        if (plugin.replayBridge().tryPlayForReport(mod, report.id())) {
+            plugin.messages().send(mod, "report-replay-started", "id", report.id());
+            return;
+        }
         Player local = Bukkit.getPlayer(report.targetUuid());
         if (local != null) {
             mod.teleport(local.getLocation());

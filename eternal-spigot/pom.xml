@@ -20,6 +20,14 @@
             <artifactId>eternal-core</artifactId>
         </dependency>
         <dependency>
+            <!-- ReplayApi at compile-time only; the EternalReplay plugin
+                 supplies the impl at runtime via Bukkit ServicesManager.
+                 'provided' keeps it out of the shaded JAR. -->
+            <groupId>de.eternal</groupId>
+            <artifactId>eternal-replay</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
         </dependency>

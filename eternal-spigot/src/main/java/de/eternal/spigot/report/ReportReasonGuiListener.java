@@ -72,6 +72,7 @@ public final class ReportReasonGuiListener implements Listener {
             );
             lastReport.put(reporter.getUniqueId(), System.currentTimeMillis());
             Bukkit.getScheduler().runTask(plugin, () -> {
+                plugin.replayBridge().captureForReport(sub.targetUuid(), created.id());
                 plugin.messages().send(reporter, "report-success", "id", created.id());
                 notifyStaff(created);
             });

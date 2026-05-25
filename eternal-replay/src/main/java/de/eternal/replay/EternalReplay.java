@@ -1,0 +1,75 @@
+package de.eternal.replay;
+
+import de.eternal.replay.api.ReplayApi;
+import de.eternal.replay.internal.ReplayApiImpl;
+import de.eternal.replay.internal.playback.PlaybackListener;
+import de.eternal.replay.internal.recorder.ContinuousRecorder;
+import de.eternal.replay.internal.recorder.RecorderListener;
+import de.eternal.replay.internal.storage.ReplayStore;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
+
+import java.io.IOException;
+
+/**
+ * Main entry for the standalone replay plugin. Wires the four moving
+ * parts together (recorder, listener, storage, API), saves the default
+ * config on first run, and registers {@link ReplayApi} in the Bukkit
+ * ServicesManager so other plugins can pick it up via:
+ *
+ * <pre>{@code
+ * ReplayApi api = Bukkit.getServicesManager().load(ReplayApi.class);
+ * }</pre>
+ */
+public final class EternalReplay extends JavaPlugin {
+
+    private ReplayApiImpl api;
+    private ContinuousRecorder recorder;
+
+    @Override
+    public void onEnable() {
+        saveDefaultConfig();
+        long retentionMs = Math.max(10_000L, getConfig().getLong("retention-seconds", 60) * 1000L);
+        int frameIntervalTicks = Math.max(1, getConfig().getInt("frame-interval-ticks", 4));
+        int invIntervalTicks = Math.max(20, getConfig().getInt("inventory-snapshot-ticks", 100));
+        long maxFollowupMs = Math.max(60_000L, getConfig().getLong("max-followup-seconds", 600) * 1000L);
+        String serverName = getConfig().getString("server-name", "lobby");
+
+        this.recorder = new ContinuousRecorder(this, retentionMs, frameIntervalTicks, invIntervalTicks);
+        this.recorder.start();
+        getServer().getPluginManager().registerEvents(new RecorderListener(recorder), this);
+
+        ReplayStore store;
+        try {
+            store = new ReplayStore(getDataFolder().toPath().resolve("replays"));
+        } catch (IOException ex) {
+            getLogger().severe("Could not init replay store: " + ex.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        this.api = new ReplayApiImpl(this, recorder, store, serverName, maxFollowupMs);
+        getServer().getServicesManager().register(ReplayApi.class, api, this, ServicePriority.Normal);
+        getServer().getPluginManager().registerEvents(
+                new PlaybackListener(api, p -> api.sessionOf(p)), this);
+
+        getLogger().info("EternalReplay aktiv — retention " + (retentionMs / 1000) + "s, "
+                + "frame interval " + frameIntervalTicks + " ticks");
+    }
+
+    @Override
+    public void onDisable() {
+        if (recorder != null) recorder.stop();
+        if (api != null) {
+            // Stop any active playbacks so restored inventories don't get
+            // lost when the plugin unloads.
+            for (org.bukkit.entity.Player p : getServer().getOnlinePlayers()) {
+                if (api.isViewing(p.getUniqueId())) api.stopPlayback(p.getUniqueId());
+            }
+        }
+        if (api != null) getServer().getServicesManager().unregisterAll(this);
+    }
+
+    public @NotNull ReplayApi api() { return api; }
+}

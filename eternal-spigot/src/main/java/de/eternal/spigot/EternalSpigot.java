@@ -59,6 +59,7 @@ public final class EternalSpigot extends JavaPlugin {
     private CloudPermsAccess cloudPerms;
     private de.eternal.spigot.listener.CloudNetBridgeListener cloudNetBridge;
     private ReportListGui reportGui;
+    private de.eternal.spigot.integration.ReplayBridge replayBridge;
     private de.eternal.spigot.report.ReportReasonGui reportReasonGui;
     private de.eternal.spigot.command.ReportCommand reportCommandRef;
     private BungeeChannelBridge bungeeBridge;
@@ -162,6 +163,7 @@ public final class EternalSpigot extends JavaPlugin {
             this.reportGui = new ReportListGui(this);
             this.reportReasonGui = new de.eternal.spigot.report.ReportReasonGui(this);
             this.bungeeBridge = new BungeeChannelBridge(this);
+            this.replayBridge = new de.eternal.spigot.integration.ReplayBridge(getLogger());
             this.reportActions = new ReportActions(this, bungeeBridge);
         }
 
@@ -282,6 +284,7 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull ReportListGui reportGui() { return reportGui; }
     public @NotNull de.eternal.spigot.report.ReportReasonGui reportReasonGui() { return reportReasonGui; }
     public @NotNull ReportActions reportActions() { return reportActions; }
+    public @NotNull de.eternal.spigot.integration.ReplayBridge replayBridge() { return replayBridge; }
     public @NotNull BungeeChannelBridge bungeeBridge() { return bungeeBridge; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }
 }

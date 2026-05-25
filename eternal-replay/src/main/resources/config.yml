@@ -1,0 +1,24 @@
+# EternalReplay - standalone replay recording + playback.
+
+# Wie viele Sekunden vor einem captureWindow-Aufruf rueckwirkend
+# gespeichert werden. Pro Spieler ~150 Bytes pro Frame bei 5 Hz, also
+# bei 60s ~45 KB pro Online-Spieler im RAM.
+retention-seconds: 60
+
+# Wie oft pro Sekunde ein Bewegungs-Frame aufgenommen wird.
+#   4 ticks  = 5 Hz   (Default, ressourcenschonend)
+#   2 ticks  = 10 Hz  (smoother, ~doppelter RAM-Bedarf)
+frame-interval-ticks: 4
+
+# Wie oft ein vollstaendiger Inventar-Snapshot gemacht wird.
+# 100 Ticks = alle 5 Sekunden.
+inventory-snapshot-ticks: 100
+
+# Maximale Follow-up-Dauer nach captureWindow, bevor der Recorder
+# automatisch endCapture aufruft. Verhindert dass vergessene Captures
+# unbegrenzt mit ihm wachsen.
+max-followup-seconds: 600
+
+# Name dieses Servers (taucht in der Replay-Metadaten auf, damit
+# spaeter Cross-Server-Replays unterscheidbar sind).
+server-name: lobby

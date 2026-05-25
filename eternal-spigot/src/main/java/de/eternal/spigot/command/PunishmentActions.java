@@ -57,6 +57,9 @@ public final class PunishmentActions {
                 plugin.storage().closeReport(r.id(),
                         "Auto-Close: gebannt fuer '" + banLabel + "' durch " + issuerName);
                 plugin.storage().linkReportToBan(r.id(), banId);
+                // Persist the in-flight replay (if any) so mods reviewing
+                // the closed report later still have evidence to look at.
+                plugin.replayBridge().endCaptureForReport(r.id());
             }
         }
     }
