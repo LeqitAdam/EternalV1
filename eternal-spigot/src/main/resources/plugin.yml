@@ -1,0 +1,111 @@
+name: Eternal
+version: ${project.version}
+main: de.eternal.spigot.EternalSpigot
+api-version: '1.19'
+author: Eternal
+description: Eternal Ban-/Mute-/Report-System (Spigot)
+
+commands:
+  ban:
+    description: Bannt einen Spieler.
+    usage: /ban <Spieler> [reason-id]
+    permission: eternal.ban
+  unban:
+    description: Entbannt einen Spieler.
+    usage: /unban <Spieler> [Grund]
+    permission: eternal.unban
+  mute:
+    description: Mutet einen Spieler.
+    usage: /mute <Spieler> [reason-id]
+    permission: eternal.mute
+  unmute:
+    description: Entmutet einen Spieler.
+    usage: /unmute <Spieler> [Grund]
+    permission: eternal.unmute
+  report:
+    description: Reportet einen Spieler.
+    usage: /report <Spieler> [reason-id] [Kommentar]
+    permission: eternal.report
+  reportsystem:
+    description: Mod-Login fuer Reports.
+    usage: /reportsystem <login|logout|list>
+    permission: eternal.reportsystem
+  eternalreport:
+    description: Internes Klick-Backend fuer die Chat-Buttons.
+    usage: /eternalreport <accept|reject|tp> <id>
+    permission: eternal.reportsystem
+  history:
+    description: Zeigt Bann-/Mute-/Report-Historie eines Spielers.
+    usage: /history <Spieler>
+    permission: eternal.lookup
+    aliases: [banhistory]
+  lookup:
+    description: Zeigt Infos zu einem Spieler.
+    usage: /lookup <Spieler>
+    permission: eternal.lookup
+  resethistory:
+    description: Loescht die History eines Spielers.
+    usage: /resethistory <Spieler>
+    permission: eternal.history.reset
+  modify:
+    description: Bestehenden Bann nachtraeglich aendern.
+    usage: /modify <banid> setduration|setreason <wert>
+  eternal:
+    description: Verwaltung und Account-Link.
+    usage: /eternal <reload|link <code>>
+
+permissions:
+  eternal.ban:
+    description: Darf bannen.
+    default: op
+  eternal.ban.admin:
+    description: Darf Admin-Banns verhaengen (reasons mit admin-Flag).
+    default: false
+  eternal.unban:
+    description: Darf entbannen.
+    default: op
+  eternal.unban.admin:
+    description: Darf Admin-Banns aufheben.
+    default: false
+  eternal.history.reset:
+    description: Darf die History eines Spielers zuruecksetzen.
+    default: false
+  eternal.modify.duration:
+    description: Darf die Dauer bestehender Banns anpassen.
+    default: false
+  eternal.modify.reason:
+    description: Darf den Grund bestehender Banns umschreiben.
+    default: false
+  eternal.mute:
+    description: Darf muten.
+    default: op
+  eternal.unmute:
+    description: Darf entmuten.
+    default: op
+  eternal.report:
+    description: Darf reporten.
+    default: true
+  eternal.reportsystem:
+    description: Darf Reports bearbeiten.
+    default: op
+  eternal.lookup:
+    description: Darf Spieler nachschlagen.
+    default: op
+  eternal.admin:
+    description: Voller administrativer Zugriff.
+    default: op
+  eternal.reason.*:
+    description: Darf jeden Grund nutzen.
+    default: op
+  eternal.notify:
+    description: Empfaengt Broadcast-Nachrichten ueber Bans/Mutes.
+    default: op
+  eternal.report.notify:
+    description: Empfaengt Broadcast wenn ein neuer Report eingereicht wird.
+    default: op
+  eternal.lookup.bypass:
+    description: Darf jeden Spieler nachschlagen (ignoriert Tier-Schutz).
+    default: op
+  eternal.bypass:
+    description: Umgeht den Tier-Schutz vollstaendig (z.B. fuer Owner).
+    default: false

@@ -1,0 +1,39 @@
+# Maven
+target/
+.mvn/
+*.versionsBackup
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.factorypath
+
+# Node / Angular
+eternal-web/node_modules/
+eternal-web/dist/
+eternal-web/.angular/
+eternal-web/coverage/
+
+# Runtime artefacts (local testing)
+*.db
+*.db-journal
+*.log
+logs/
+plugins/Eternal/
+api.yml
+api-keys.txt
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor backups
+*.bak
+*~
+.#*

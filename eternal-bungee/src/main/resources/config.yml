@@ -1,0 +1,87 @@
+# Eternal — BungeeCord Konfiguration
+# Im Netzwerk-Betrieb teilen alle Proxies und Server eine MySQL-Datenbank.
+
+# Sprache: laed translations/<language>.yml
+language: de
+
+proxy-name: proxy-1
+
+database:
+  type: mysql
+  host: 127.0.0.1
+  port: 3306
+  database: eternal
+  username: eternal
+  password: ""
+  pool-size: 10
+
+  # SQLite-Fallback fuer Tests:
+  file: eternal.db
+
+reports:
+  cooldown-seconds: 30
+  max-open-per-reporter: 3
+  notify-online-staff: true
+  teleport-on-claim: false
+
+# Anbindung an die Eternal-REST-API (nur fuer /eternal link <code>).
+api:
+  enabled: false
+  base-url: http://127.0.0.1:7070
+  shared-secret: ""
+
+# CloudNet-Integration - automatisch aktiv wenn CloudNet-CloudPerms am
+# Proxy erkannt wird. Mapped CloudNet-Gruppen auf Eternal-Permissions + Tier.
+cloudnet:
+  groups:
+    Admin:
+      tier: 100
+      permissions:
+        - eternal.ban
+        - eternal.unban
+        - eternal.mute
+        - eternal.unmute
+        - eternal.reportsystem
+        - eternal.lookup
+        - eternal.lookup.bypass
+        - eternal.admin
+        - eternal.notify
+        - eternal.ban.admin
+        - eternal.unban.admin
+        - eternal.history.reset
+        - eternal.modify.duration
+        - eternal.modify.reason
+
+    SrMod:
+      tier: 75
+      permissions:
+        - eternal.ban
+        - eternal.unban
+        - eternal.mute
+        - eternal.unmute
+        - eternal.reportsystem
+        - eternal.lookup
+        - eternal.notify
+        - eternal.modify.duration
+
+    Mod:
+      tier: 50
+      permissions:
+        - eternal.ban
+        - eternal.mute
+        - eternal.unmute
+        - eternal.reportsystem
+        - eternal.lookup
+        - eternal.notify
+
+    Supporter:
+      tier: 25
+      permissions:
+        - eternal.mute
+        - eternal.reportsystem
+        - eternal.lookup
+
+    default:
+      tier: 0
+      permissions:
+        - eternal.report

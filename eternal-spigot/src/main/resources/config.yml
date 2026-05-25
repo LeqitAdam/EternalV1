@@ -1,0 +1,103 @@
+# Eternal — Spigot Konfiguration
+
+# Sprache: das Plugin laedt translations/<language>.yml.
+# Eigene Sprache hinzufuegen: einfach eine neue Datei in plugins/Eternal/translations/
+# anlegen (z.B. fr.yml) und hier eintragen.
+language: de
+
+# Wird in Reports/Logs verwendet, damit du im Netzwerk siehst, woher die
+# Aktion kam.
+server-name: lobby
+
+database:
+  type: sqlite       # SQLITE (lokal) oder MYSQL (Netzwerk)
+  file: eternal.db
+
+  host: 127.0.0.1
+  port: 3306
+  database: eternal
+  username: eternal
+  password: ""
+  pool-size: 10
+
+reports:
+  cooldown-seconds: 30
+  max-open-per-reporter: 3
+  notify-online-staff: true
+  teleport-on-claim: true
+
+# Verhalten von /resethistory:
+#   hard  = Eintraege werden physisch aus der DB geloescht (Default).
+#   soft  = Eintraege bleiben in der DB mit hidden=1 - sind per SQL
+#           wiederherstellbar, zaehlen aber nicht mehr fuer Eskalation
+#           und tauchen nicht in /history auf.
+history:
+  reset-mode: hard
+
+# Anbindung an die Eternal-REST-API.
+# Aktiviere das nur, wenn das eternal-api-Jar laeuft. Mit dem Shared Secret
+# (gleicher Wert wie in api.yml unter internal.shared-secret) bestaetigt das
+# Plugin /eternal link <code> Anfragen und pollt fuer Web->Ingame-Teleports.
+api:
+  enabled: false
+  base-url: http://localhost:7070
+  shared-secret: ""
+  poll-interval-seconds: 3
+
+# CloudNet-Integration. Wird automatisch aktiviert, wenn CloudNet-CloudPerms
+# auf dem Server erkannt wird (sonst still ignoriert). Mapped CloudNet-Gruppen
+# auf Eternal-Permissions + Tier - identische Konfiguration auf Bungee und
+# Spigot, einfach hier eintragen.
+cloudnet:
+  groups:
+    Admin:
+      tier: 100
+      permissions:
+        - eternal.ban
+        - eternal.unban
+        - eternal.mute
+        - eternal.unmute
+        - eternal.reportsystem
+        - eternal.lookup
+        - eternal.lookup.bypass
+        - eternal.admin
+        - eternal.notify
+        - eternal.ban.admin
+        - eternal.unban.admin
+        - eternal.history.reset
+        - eternal.modify.duration
+        - eternal.modify.reason
+
+    SrMod:
+      tier: 75
+      permissions:
+        - eternal.ban
+        - eternal.unban
+        - eternal.mute
+        - eternal.unmute
+        - eternal.reportsystem
+        - eternal.lookup
+        - eternal.notify
+        - eternal.modify.duration
+
+    Mod:
+      tier: 50
+      permissions:
+        - eternal.ban
+        - eternal.mute
+        - eternal.unmute
+        - eternal.reportsystem
+        - eternal.lookup
+        - eternal.notify
+
+    Supporter:
+      tier: 25
+      permissions:
+        - eternal.mute
+        - eternal.reportsystem
+        - eternal.lookup
+
+    default:
+      tier: 0
+      permissions:
+        - eternal.report

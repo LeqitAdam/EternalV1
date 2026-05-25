@@ -1,0 +1,191 @@
+# Eternal — deutsche Texte
+#
+# {prefix} wird ueberall durch den Pink-Eternal-Prefix ersetzt.
+# &-Codes sind die normalen Minecraft-Farben.
+# Platzhalter wie {target}, {issuer}, {reason}, {duration}, {id} usw. werden
+# zur Laufzeit eingesetzt — was zur Verfuegung steht, steht in jeder Zeile
+# unten im Kommentar (falls nicht-offensichtlich).
+#
+# Wenn du eine Zeile entfernst, faellt der Plugin-interne Default fuer den
+# Schluessel ein (der Default ist meist der Schluessel-Name selbst).
+
+prefix: "&dEternal &8» &7"
+
+# --- Allgemein -----------------------------------------------------------
+no-permission: "{prefix}&cDu hast dafuer keine Rechte."
+player-only: "{prefix}&cNur Spieler koennen das ausfuehren."
+unknown-player: "{prefix}&cSpieler &e{name} &cwurde nie auf diesem Server gesehen."
+unknown-action: "{prefix}&cUnbekannte Aktion: &f{action}"
+unknown-reason: "{prefix}&cUnbekannter Grund: &f{id}"
+console-name: "Konsole"
+none: "-"
+
+# --- Usage / Hilfen -------------------------------------------------------
+usage-ban: "{prefix}&7Nutzung: &f/ban <Spieler> [Grund-Nr]"
+usage-mute: "{prefix}&7Nutzung: &f/mute <Spieler> [Grund-Nr]"
+usage-unban: "{prefix}&7Nutzung: &f/unban <Spieler> [Grund]"
+usage-unmute: "{prefix}&7Nutzung: &f/unmute <Spieler> [Grund]"
+usage-report: "{prefix}&7Nutzung: &f/report <Spieler> [Grund-Nr] [Kommentar]"
+usage-lookup: "{prefix}&7Nutzung: &f/lookup <Spieler>"
+usage-history: "{prefix}&7Nutzung: &f/history <Spieler>"
+usage-eternal: "{prefix}&7Nutzung: &f/eternal <reload|link <code>>"
+link-success: "{prefix}&aAccount mit dem Dashboard verknuepft."
+link-failed: "{prefix}&cCode unbekannt oder abgelaufen."
+link-api-disabled: "{prefix}&cDie REST-API ist nicht konfiguriert. Setze api.enabled=true in der config.yml."
+usage-reportsystem: "{prefix}&7Nutzung: &f/reportsystem <login|logout|list>"
+reportsystem-tp-cross-server: "{prefix}&7Verbinde dich mit &e{server}&7 fuer den Teleport zum Reportziel ..."
+reportsystem-already-yours: "{prefix}&7Du bearbeitest Report &f#{id}&7 bereits — teleportiere dich erneut."
+reportsystem-already-claimed-by: "{prefix}&7Report &f#{id}&7 wird bereits von &e{handler}&7 bearbeitet (du kannst nicht uebernehmen)."
+reportsystem-took-over: "{prefix}&aDu hast Report &f#{id}&a von &e{handler}&a uebernommen."
+reportsystem-taken-over-by: "{prefix}&cDein Report &f#{id}&c wurde von &e{handler}&c uebernommen."
+reportsystem-already-closed: "{prefix}&7Report &f#{id}&7 ist bereits geschlossen."
+
+# GUI
+gui-reports-title: "&dOffene Reports"
+gui-reports-name: "&e#{id} &7- &f{target}"
+gui-reports-lore-reason: "&7Grund: &f{reason}"
+gui-reports-lore-reporter: "&7Reporter: &f{reporter}"
+gui-reports-lore-server: "&7Server: &f{server}"
+gui-reports-lore-when: "&7Erstellt: &f{when}"
+gui-reports-lore-comment: "&7Kommentar: &f{comment}"
+gui-reports-lore-handler: "&7In Bearbeitung von: &f{handler}"
+gui-reports-lore-help-claim: "&8» &aLinksklick: claim + TP"
+gui-reports-lore-help-tp: "&8» &bRechtsklick: nur TP"
+gui-reports-lore-help-close: "&8» &cShift-Klick: schliessen"
+
+# Chat-Buttons in der Mod-Benachrichtigung
+report-notify-accept: "&a&l[Annehmen]"
+report-notify-reject: "&c&l[Ablehnen]"
+report-notify-tp: "&b&l[TP]"
+hover-accept-report: "&7Report &f#{id} &7annehmen + zum Ziel teleportieren."
+hover-reject-report: "&7Report &f#{id} &7ohne Aktion schliessen."
+hover-tp-report: "&7Zum Ziel von Report &f#{id} &7teleportieren."
+
+# --- Tier-Schutz ----------------------------------------------------------
+tier-blocked-action: "{prefix}&cDu hast nicht den Rang, um &e{target} &czu bestrafen."
+tier-blocked-lookup: "{prefix}&cDu darfst diesen Spieler nicht einsehen."
+
+# --- Ban-/Mute-Auswahl ----------------------------------------------------
+# Zeigt die kombinierte Liste fuer /ban oder /mute, wenn der Spieler keine
+# Grund-Nummer mitgegeben hat.
+punish-list-header: "&8» &dEternal &8| &7Verfuegbare Gruende&8:"
+punish-list-line-ban: "&8 - &e{id} &8| &f{label} &8» &c&lBAN"
+punish-list-line-mute: "&8 - &e{id} &8| &f{label} &8» &6&lMUTE"
+punish-list-footer: "&7Anwenden mit &f/ban {target} <Nr> &7oder &f/mute {target} <Nr>"
+
+# --- Bann ----------------------------------------------------------------
+ban-already-banned: "{prefix}&e{target}&7 ist bereits gebannt."
+ban-success: "{prefix}&7Du hast &e{target}&7 gebannt: &f{reason} &7(&f{duration}&7)."
+ban-broadcast: "{prefix}&e{target}&7 wurde von &e{issuer}&7 gebannt: &f{reason} &7(&f{duration}&7)"
+ban-kick-screen: |-
+  &dEternal &8»
+
+  &7Du wurdest vom Netzwerk &cgebannt&7.
+
+  &8Grund: &f{reason}
+  &8Dauer: &f{duration}
+  &8Bann-ID: &f#{id}
+
+  &8Beschwerde: &f/appeal
+
+unban-success: "{prefix}&7Du hast &e{target}&7 entbannt."
+unban-not-banned: "{prefix}&e{target}&7 ist nicht gebannt."
+
+# --- Mute ----------------------------------------------------------------
+mute-already-muted: "{prefix}&e{target}&7 ist bereits gemutet."
+mute-success: "{prefix}&7Du hast &e{target}&7 gemutet: &f{reason} &7(&f{duration}&7)."
+mute-broadcast: "{prefix}&e{target}&7 wurde von &e{issuer}&7 gemutet: &f{reason} &7(&f{duration}&7)"
+mute-blocked-chat: "{prefix}&cDu bist gemutet (&f{reason}&c). Verbleibend: &f{remaining}&c."
+
+unmute-success: "{prefix}&7Du hast &e{target}&7 entmutet."
+unmute-not-muted: "{prefix}&e{target}&7 ist nicht gemutet."
+
+# --- Report --------------------------------------------------------------
+report-prompt-header: "{prefix}&7Waehle einen Grund fuer den Report von &e{target}&7:"
+report-prompt-line: "&7  &e#{n} &8» &f{label}"
+report-prompt-footer: "{prefix}&7Anwenden mit &f/report {target} <Nr> [Kommentar]"
+report-success: "{prefix}&7Report &f#{id} &7eingereicht. Danke."
+report-cooldown: "{prefix}&cDu reportest zu schnell. Bitte warte &f{seconds}s&c."
+report-self: "{prefix}&cDu kannst dich nicht selbst reporten."
+report-staff-notify: "{prefix}&6&lNEUER REPORT &7#&f{id} &8» &e{target} &7({reason}) &8von &e{reporter}"
+
+# --- Reportsystem (Mods) -------------------------------------------------
+reportsystem-login: "{prefix}&aDu bist jetzt als Mod eingeloggt."
+reportsystem-logout: "{prefix}&7Du bist als Mod ausgeloggt."
+reportsystem-already-in: "{prefix}&7Du bist bereits eingeloggt."
+reportsystem-list-empty: "{prefix}&7Keine offenen Reports."
+reportsystem-list-line: "&7  #&f{id} &8» &e{target} &7({reason}) &8von &e{reporter} &8| &7{server}"
+reportsystem-claimed: "{prefix}&aDu bearbeitest jetzt Report #&f{id}&a."
+reportsystem-closed: "{prefix}&7Report #&f{id}&7 geschlossen."
+reportsystem-not-found: "{prefix}&cReport nicht gefunden."
+reportsystem-tp-offline: "{prefix}&cZiel ist offline."
+reportsystem-tp-success: "{prefix}&7Teleportiert zu &e{target}&7."
+reportsystem-sent-to: "{prefix}&7Du wurdest zu &e{server}&7 (Reportziel) verbunden."
+reportsystem-id-required: "{prefix}&cBitte eine Report-ID angeben."
+reportsystem-id-not-number: "{prefix}&cDie ID muss eine Zahl sein."
+
+# --- Lookup --------------------------------------------------------------
+lookup-header: "{prefix}&7Spieler {display} &8(&f{uuid}&8)"
+ban-perm-denied: "{prefix}&cFuer diesen Grund fehlt dir die noetige Permission."
+unban-admin-only: "{prefix}&cDieser Bann ist als Admin-Bann markiert und kann nur von einem Admin aufgehoben werden."
+lookup-line: "&7  {key}&8: &f{value}"
+lookup-history-header: "&7  Letzte Eintraege&8:"
+lookup-history-line-ban: "&8 - &c#&f{id} &7BAN &f{label} &8by &e{issuer} &8({state})"
+lookup-history-line-mute: "&8 - &6#&f{id} &7MUTE &f{label} &8by &e{issuer} &8({state})"
+lookup-history-line-report: "&8 - &b#&f{id} &7REPORT &f{label} &8by &e{reporter} &8({state})"
+
+# /history — DKBans-artige Detail-Cards, eine pro Eintrag
+history-card-header: "&8» &dEternal &8| &7History Entry of {display}"
+history-separator: "&8&m──────────────────────────────────"
+history-card-line-id: "&8» &7Id&8: &e{id}"
+history-card-line-type-ban: "&8» &7Type&8: &c&lBAN"
+history-card-line-type-mute: "&8» &7Type&8: &6&lMUTE"
+history-card-line-type-report: "&8» &7Type&8: &b&lREPORT"
+history-card-line-active-yes: "&8» &7Active&8: &aYes"
+history-card-line-active-no: "&8» &7Active&8: &cNo &8({state})"
+history-card-line-staff-prefix: "&8» &7Staff&8: "
+history-card-line-reporter-prefix: "&8» &7Reporter&8: "
+history-card-line-reason: "&8» &7Reason&8: &f{label}"
+history-card-line-duration: "&8» &7Duration&8: &f{value}"
+history-card-line-remaining: "&8» &7Remaining&8: &f{value}"
+history-card-line-issued: "&8» &7Issued&8: &f{value}"
+history-card-line-timeout: "&8» &7Timeout&8: &f{value}"
+history-card-line-result-ban: "&8» &7Result&8: &cBAN #{id} &8({label})"
+history-card-line-result-none: "&8» &7Result&8: &7no ban"
+history-card-line-modified-time: "&8» &7Modified Time&8: &f{value}"
+history-card-line-modified-by-prefix: "&8» &7Modified By&8: "
+history-card-empty-modified: "&7-"
+history-state-expired: "&7abgelaufen"
+history-state-pardoned: "&7aufgehoben"
+history-state-report-open: "&6offen"
+history-state-report-claimed: "&ein Bearbeitung"
+history-state-report-closed: "&7erledigt"
+
+# Sessions in /lookup
+lookup-sessions-header: "&7  Letzte Sessions&8:"
+lookup-sessions-line: "&8 - &fIP &7{ip}  &8|  &7Login &f{login}  &8|  &7Logout &f{logout}"
+lookup-sessions-line-active: "&8 - &fIP &7{ip}  &8|  &7Login &f{login}  &8|  &aaktuell online"
+lookup-sessions-empty: "&8 - &7noch keine Sessions aufgezeichnet"
+lookup-history-empty: "&8 - &7keine Eintraege"
+lookup-state-active: "&aaktiv"
+lookup-state-expired: "&7abgelaufen"
+lookup-state-pardoned: "&7aufgehoben"
+lookup-state-report-open: "&6offen"
+lookup-state-report-claimed: "&ein Bearbeitung"
+lookup-state-report-closed: "&7erledigt"
+
+# --- Klick-Hover (BaseComponent-Tooltips) --------------------------------
+hover-show-staff: "&7Klick zeigt das Profil von &e{name}&7."
+
+# --- Admin ---------------------------------------------------------------
+config-reloaded: "{prefix}&aKonfiguration neu geladen."
+
+# --- /resethistory + /modify --------------------------------------------
+usage-resethistory: "{prefix}&7Nutzung: &f/resethistory <Spieler>"
+resethistory-success: "{prefix}&aHistory von &e{target}&a zurueckgesetzt &7({count} Eintraege, mode={mode})."
+usage-modify: "{prefix}&7Nutzung: &f/modify <banid> setduration <Dauer> &7| &f/modify <banid> setreason <Grund-ID|Text>"
+modify-invalid-id: "{prefix}&cKeine gueltige Bann-ID: &f{id}"
+modify-not-found: "{prefix}&cBann mit ID &f#{id}&c nicht gefunden."
+modify-unknown-action: "{prefix}&cUnbekannte Aktion: &f{action}&c. Erlaubt: &fsetduration&7, &fsetreason&7."
+modify-duration-success: "{prefix}&aBann &f#{id}&a auf neue Dauer gesetzt: &f{value}"
+modify-reason-success: "{prefix}&aBann &f#{id}&a hat jetzt den Grund: &f{value}"

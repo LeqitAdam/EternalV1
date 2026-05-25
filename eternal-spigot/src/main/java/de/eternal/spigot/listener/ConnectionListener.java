@@ -1,0 +1,87 @@
+package de.eternal.spigot.listener;
+
+import de.eternal.core.model.PunishmentEntry;
+import de.eternal.core.time.DurationParser;
+import de.eternal.spigot.EternalSpigot;
+import de.eternal.spigot.Tiers;
+import org.bukkit.ChatColor;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.jetbrains.annotations.NotNull;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+public final class ConnectionListener implements Listener {
+
+    private final EternalSpigot plugin;
+    private final java.util.concurrent.ConcurrentHashMap<java.util.UUID, Long> activeSessions =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    public ConnectionListener(@NotNull EternalSpigot plugin) {
+        this.plugin = plugin;
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPreLogin(@NotNull AsyncPlayerPreLoginEvent event) {
+        Optional<PunishmentEntry> ban = plugin.punishments().activeBan(event.getUniqueId());
+        if (ban.isEmpty()) return;
+
+        PunishmentEntry b = ban.get();
+        String duration = b.isPermanent()
+                ? "permanent"
+                : DurationParser.formatRemaining(
+                        Math.max(0, b.expiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
+
+        String screen = plugin.messages().format("ban-kick-screen",
+                "reason", b.reasonLabel(),
+                "duration", duration,
+                "id", b.id());
+        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED,
+                ChatColor.translateAlternateColorCodes('&', screen));
+    }
+
+    // MONITOR ensures chat-plugins like CloudNet-Chat / SimpleNameTags have
+    // already mutated player.getDisplayName() by the time we capture it.
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(@NotNull PlayerJoinEvent event) {
+        var p = event.getPlayer();
+        String addr = p.getAddress() == null ? "?" : p.getAddress().getAddress().getHostAddress();
+        int tier = Tiers.of(p);
+
+        // Try CloudNet first; fall back to the player's display name so the
+        // lookup output still has something meaningful to show on a server
+        // without CloudPerms.
+        List<String> groups = plugin.cloudPerms().groupsOf(p.getUniqueId());
+        String group = groups.isEmpty()
+                ? ChatColor.stripColor(p.getDisplayName())
+                : groups.get(0);
+        // DisplayName as produced by CloudNet-Chat / nametag plugins. Captured
+        // here on the main thread (chat-plugins typically set it during their
+        // own join listener — we run at MONITOR, so the formatted version is
+        // already in place) and persisted so /lookup can show a rank-coloured
+        // header even when the target is offline.
+        String displayName = p.getDisplayName();
+
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            plugin.storage().recordProfile(p.getUniqueId(), p.getName(), addr, tier, group, displayName);
+            long sessionId = plugin.storage().startSession(p.getUniqueId(), p.getName(), addr);
+            activeSessions.put(p.getUniqueId(), sessionId);
+        });
+    }
+
+    @EventHandler
+    public void onQuit(@NotNull PlayerQuitEvent event) {
+        plugin.staff().logout(event.getPlayer().getUniqueId());
+        Long sessionId = activeSessions.remove(event.getPlayer().getUniqueId());
+        if (sessionId != null) {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
+                    plugin.storage().endSession(sessionId));
+        }
+    }
+}

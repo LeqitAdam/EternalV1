@@ -1,0 +1,5 @@
+name: Eternal
+version: ${project.version}
+main: de.eternal.bungee.EternalBungee
+author: Eternal
+description: Eternal Ban-/Mute-/Report-System (BungeeCord)

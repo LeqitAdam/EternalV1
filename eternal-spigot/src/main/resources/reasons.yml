@@ -1,0 +1,162 @@
+# Eternal — alle Bann-/Mute-Gruende in einer Liste.
+#
+# id:       eindeutige Nummer ab 1. Luecken sind erlaubt — die ID muss nur
+#           innerhalb der Liste eindeutig sein.
+# type:     ban oder mute. Entscheidet, ob die Strafe ein Bann (kickt + DB)
+#           oder ein Mute (blockt Chat) wird.
+# label:    der Text, der im Bann-/Mute-Screen, im Broadcast und in der
+#           History erscheint.
+# duration: permanent | <n>s | <n>m | <n>h | <n>d | <n>w | <n>y
+# permission (optional): Permission-Node, das der Ausfuehrende braucht.
+#                        Default ist "eternal.ban" — oder "eternal.ban.admin",
+#                        falls 'admin: true' gesetzt ist.
+# groupid (optional):    CloudNet sortId/potency Mindest-Schwelle. Wer keine
+#                        passende Permission hat, kommt trotzdem durch, wenn
+#                        sein Tier >= dieser Wert ist. 0 = aus.
+# admin (optional):      true markiert den Grund als Admin-Bann — nur
+#                        eternal.ban.admin darf den Bann verhaengen, nur
+#                        eternal.unban.admin darf ihn aufheben. Im
+#                        Web-Interface ist der Eintrag fuer normale Mods
+#                        nur lesbar.
+# escalation (optional): Liste von Dauern, die je nach Anzahl
+#                        vorheriger abgelaufener/aufgehobener Banns gegen
+#                        denselben Grund ausgewaehlt werden. Index 0 = 1.
+#                        Vergehen, Index 1 = 2., usw. Falls weniger Stufen
+#                        konfiguriert sind als bereits passiert, wird der
+#                        letzte Eintrag wiederholt. Ohne escalation gilt
+#                        immer die 'duration' fuer jeden Vorfall.
+#   escalation:
+#     - 1d            # 1. Mal
+#     - 7d            # 2. Mal
+#     - 30d           # 3. Mal
+#     - permanent     # 4. Mal und weitere
+#
+# Beide Commands sind synonym:
+#   /ban <Spieler> <id>     /mute <Spieler> <id>
+# Der Typ richtet sich nach 'type', nicht nach dem Command-Namen.
+
+reasons:
+  - id: 1
+    type: ban
+    label: "Hacking / Cheating"
+    duration: permanent
+
+  - id: 2
+    type: ban
+    label: "Griefing"
+    duration: 30d
+
+  - id: 3
+    type: ban
+    label: "Bug Abuse"
+    duration: 14d
+
+  - id: 4
+    type: ban
+    label: "Bann-Umgehung"
+    duration: permanent
+
+  - id: 5
+    type: ban
+    label: "Schwere Beleidigung"
+    duration: 7d
+    # Beispiel-Eskalation: 1. Mal 7d, 2. Mal 30d, 3. Mal permanent.
+    escalation:
+      - 7d
+      - 30d
+      - permanent
+
+  - id: 6
+    type: ban
+    label: "Werbung"
+    duration: 14d
+
+  - id: 7
+    type: ban
+    label: "Account-Sharing"
+    duration: 7d
+
+  - id: 8
+    type: ban
+    label: "Scamming / Betrug"
+    duration: 30d
+
+  - id: 9
+    type: ban
+    label: "Teaming"
+    duration: 3d
+
+  - id: 10
+    type: ban
+    label: "Strafbare Inhalte"
+    duration: permanent
+    permission: eternal.reason.extreme
+
+  - id: 20
+    type: mute
+    label: "Chat-Spam"
+    duration: 1h
+
+  - id: 21
+    type: mute
+    label: "Beleidigung"
+    duration: 1d
+
+  - id: 22
+    type: mute
+    label: "Caps-Lock"
+    duration: 30m
+
+  - id: 23
+    type: mute
+    label: "Provokation"
+    duration: 6h
+
+  - id: 24
+    type: mute
+    label: "Werbung im Chat"
+    duration: 7d
+
+  - id: 25
+    type: mute
+    label: "Falsche Chatsprache"
+    duration: 15m
+
+  # -------- Admin-Banns --------
+  # Diese Gruende koennen nur von eternal.ban.admin gesetzt und nur von
+  # eternal.unban.admin aufgehoben werden. Mods sehen den Bann in der History,
+  # koennen ihn aber im Webinterface nicht entfernen.
+  - id: 90
+    type: ban
+    label: "Server-Sabotage"
+    duration: permanent
+    admin: true
+
+  - id: 91
+    type: ban
+    label: "Doxxing / IRL-Drohung"
+    duration: permanent
+    admin: true
+
+  # Beispiel: per-Reason-Permission + groupid (CloudNet sortId / potency).
+  # Wer eternal.ban.severe hat ODER ein CloudNet-Tier >= 50 hat, darf nutzen.
+  # - id: 50
+  #   type: ban
+  #   label: "Schwerer Verstoss"
+  #   duration: 30d
+  #   permission: eternal.ban.severe
+  #   groupid: 50
+
+report-reasons:
+  - id: hacking
+    label: "Hacking / Cheating"
+  - id: griefing
+    label: "Griefing"
+  - id: chat
+    label: "Chatverhalten"
+  - id: bug-abuse
+    label: "Bug Abuse"
+  - id: teaming
+    label: "Teaming"
+  - id: other
+    label: "Sonstiges"
