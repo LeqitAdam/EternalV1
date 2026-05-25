@@ -130,8 +130,17 @@ export class ReportsComponent {
   }
 
   claim(r: Report) {
+    // "Annehmen" = claim + sofort TP. Der Spigot-ActionPoller loggt
+    // den Mod automatisch in /reportsystem ein und teleportiert ihn
+    // ins Replay (oder live, falls keins existiert).
     this.api.claimReport(r.id).subscribe({
-      next: () => { this.snack.open(`Report #${r.id} angenommen`, 'OK', { duration: 2500 }); this.refresh(); },
+      next: () => {
+        this.snack.open(`Report #${r.id} angenommen – TP wird ingame angefordert.`, 'OK', { duration: 3000 });
+        this.api.teleportToReport(r.id).subscribe({
+          error: e => this.snack.open(`TP-Fehler: ${e.error?.error ?? e.message}`, 'OK', { duration: 4000 })
+        });
+        this.refresh();
+      },
       error: e => this.snack.open(`Fehler: ${e.error?.error ?? e.message}`, 'OK', { duration: 4000 })
     });
   }

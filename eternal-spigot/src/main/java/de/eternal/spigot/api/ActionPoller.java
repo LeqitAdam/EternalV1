@@ -46,7 +46,12 @@ public final class ActionPoller {
 
     private void tick() {
         if (!plugin.apiBridge().enabled()) return;
-        for (UUID uuid : plugin.staff().snapshot()) {
+        // Iterate every online player — actions queued by the website
+        // target a specific UUID, but the mod doesn't need to be in
+        // /reportsystem login state for us to dispatch them. The
+        // teleport handler will auto-log them in if needed.
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            UUID uuid = p.getUniqueId();
             for (ApiBridge.PendingAction action : plugin.apiBridge().pendingActions(uuid)) {
                 handle(uuid, action);
                 plugin.apiBridge().consumeAction(action.id());
@@ -68,6 +73,22 @@ public final class ActionPoller {
             try {
                 JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
                 UUID targetUuid = UUID.fromString(body.get("targetUuid").getAsString());
+                long reportId = body.has("reportId") ? body.get("reportId").getAsLong() : -1L;
+
+                // Auto-login the mod into /reportsystem if they aren't yet
+                // — clicking "Annehmen" in the web UI implies on-duty.
+                if (plugin.staff().login(mod.getUniqueId())) {
+                    plugin.messages().send(mod, "reportsystem-login");
+                }
+
+                // Replay-first: if a replay exists (or can be captured on
+                // the fly), drop the mod into that instead of live-TP.
+                // Same code path as the in-game accept flow.
+                if (reportId > 0 && plugin.replayBridge().tryPlayForReport(mod, reportId, targetUuid)) {
+                    plugin.messages().send(mod, "report-replay-started", "id", reportId);
+                    return;
+                }
+
                 Player target = Bukkit.getPlayer(targetUuid);
                 if (target == null) {
                     plugin.messages().send(mod, "reportsystem-tp-offline");
