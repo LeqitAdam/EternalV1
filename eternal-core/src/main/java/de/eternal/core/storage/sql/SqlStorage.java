@@ -352,9 +352,9 @@ public final class SqlStorage implements EternalStorage {
     private void migrateAddAppealDecisionMessage(@NotNull Connection c) throws SQLException {
         for (String stmt : new String[]{
                 isSqlite()
-                        ? "ALTER TABLE eternal_appeals ADD COLUMN decision_message TEXT"
-                        : "ALTER TABLE eternal_appeals ADD COLUMN decision_message TEXT NULL",
-                "ALTER TABLE eternal_appeals ADD COLUMN shortened_to_seconds BIGINT"
+                        ? "ALTER TABLE eternal_unban_appeals ADD COLUMN decision_message TEXT"
+                        : "ALTER TABLE eternal_unban_appeals ADD COLUMN decision_message TEXT NULL",
+                "ALTER TABLE eternal_unban_appeals ADD COLUMN shortened_to_seconds BIGINT"
         }) {
             try (Statement st = c.createStatement()) { st.execute(stmt); }
             catch (SQLException ignored) { /* already exists */ }
