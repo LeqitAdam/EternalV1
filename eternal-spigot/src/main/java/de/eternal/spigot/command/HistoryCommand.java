@@ -157,9 +157,14 @@ public final class HistoryCommand implements CommandExecutor {
                          @NotNull Map<UUID, String> displayByUuid,
                          @NotNull Map<Long, String> banLabelById) {
         plugin.messages().send(sender, "history-separator");
-        plugin.messages().send(sender, "history-card-line-id", "id", row.id());
+        // Id colour follows the entry type so a quick scan of the column
+        // tells you at a glance what kind of entry you're looking at.
+        String idKey = row.isReport() ? "history-card-line-id-report"
+                : (row.type() == PunishmentType.BAN
+                    ? "history-card-line-id-ban"
+                    : "history-card-line-id-mute");
+        plugin.messages().send(sender, idKey, "id", row.id());
 
-        // Type
         String typeKey = row.isReport()
                 ? "history-card-line-type-report"
                 : (row.type() == PunishmentType.BAN

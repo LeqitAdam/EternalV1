@@ -73,11 +73,14 @@ public final class HistoryCommand extends Command {
             Set<UUID> staffUuids = new HashSet<>();
             for (Row row : rows) if (row.staffUuid != null) staffUuids.add(row.staffUuid);
             for (Row row : rows) if (row.modifierUuid != null) staffUuids.add(row.modifierUuid);
+            // Prefetch BOTH DisplayName (preferred) and group name (fallback)
+            // per unique staff UUID — one query, used for Staff and Modified-By.
             Map<UUID, String> displayByUuid = new HashMap<>();
+            Map<UUID, String> groupByUuid = new HashMap<>();
             for (UUID u : staffUuids) {
-                String d = plugin.storage().findProfile(u)
-                        .map(PlayerProfile::lastDisplayName).orElse("");
-                displayByUuid.put(u, d);
+                PlayerProfile pp = plugin.storage().findProfile(u).orElse(null);
+                displayByUuid.put(u, pp == null ? "" : pp.lastDisplayName());
+                groupByUuid.put(u, pp == null ? "" : pp.lastGroupName());
             }
 
             PlayerProfile targetProfile = plugin.storage().findProfile(target.uuid()).orElse(null);
@@ -95,16 +98,22 @@ public final class HistoryCommand extends Command {
                 plugin.messages().send(sender, "lookup-history-empty");
                 return;
             }
-            for (Row row : rows) sendRow(sender, row, displayByUuid, banLabelById);
+            for (Row row : rows) sendRow(sender, row, displayByUuid, groupByUuid, banLabelById);
             plugin.messages().send(sender, "history-separator");
         });
     }
 
     private void sendRow(@NotNull CommandSender sender, @NotNull Row row,
                          @NotNull Map<UUID, String> displayByUuid,
+                         @NotNull Map<UUID, String> groupByUuid,
                          @NotNull Map<Long, String> banLabelById) {
         plugin.messages().send(sender, "history-separator");
-        plugin.messages().send(sender, "history-card-line-id", "id", row.id);
+        // Type-coloured Id line.
+        String idKey = row.isReport ? "history-card-line-id-report"
+                : (row.type == PunishmentType.BAN
+                    ? "history-card-line-id-ban"
+                    : "history-card-line-id-mute");
+        plugin.messages().send(sender, idKey, "id", row.id);
 
         String typeKey = row.isReport
                 ? "history-card-line-type-report"
@@ -120,7 +129,8 @@ public final class HistoryCommand extends Command {
         sendStaffField(sender,
                 row.isReport ? "history-card-line-reporter-prefix" : "history-card-line-staff-prefix",
                 row.staffName,
-                row.staffUuid == null ? "" : displayByUuid.getOrDefault(row.staffUuid, ""));
+                row.staffUuid == null ? "" : displayByUuid.getOrDefault(row.staffUuid, ""),
+                row.staffUuid == null ? "" : groupByUuid.getOrDefault(row.staffUuid, ""));
 
         plugin.messages().send(sender, "history-card-line-reason", "label", row.label);
 
@@ -151,16 +161,32 @@ public final class HistoryCommand extends Command {
                     "value", DATE.format(row.modifiedAt));
             sendStaffField(sender, "history-card-line-modified-by-prefix",
                     row.modifierName == null ? "?" : row.modifierName,
-                    row.modifierUuid == null ? "" : displayByUuid.getOrDefault(row.modifierUuid, ""));
+                    row.modifierUuid == null ? "" : displayByUuid.getOrDefault(row.modifierUuid, ""),
+                    row.modifierUuid == null ? "" : groupByUuid.getOrDefault(row.modifierUuid, ""));
         }
     }
 
+    /**
+     * Renders a clickable name with a rank-aware fallback chain:
+     * <ol>
+     *     <li>Cached DisplayName from CloudNet-Chat (preferred)</li>
+     *     <li>Synthetic {@code [Group] Name} when the player has no cached
+     *         display but we know their group</li>
+     *     <li>Plain {@code &eName} as a last resort</li>
+     * </ol>
+     */
     private void sendStaffField(@NotNull CommandSender sender, @NotNull String prefixKey,
-                                 @NotNull String staffName, @NotNull String displayLegacy) {
+                                 @NotNull String staffName,
+                                 @NotNull String displayLegacy,
+                                 @NotNull String staffGroup) {
         String prefix = plugin.messages().format(prefixKey);
+        String legacy;
+        if (!displayLegacy.isBlank()) legacy = displayLegacy;
+        else if (!staffGroup.isEmpty()) legacy = "&8[&f" + staffGroup + "&8] &e" + staffName;
+        else legacy = "&e" + staffName;
         List<BaseComponent> out = new ArrayList<>();
         for (BaseComponent c : TextComponent.fromLegacyText(prefix)) out.add(c);
-        out.add(LookupCommand.clickableNameStatic(plugin, staffName, displayLegacy));
+        out.add(LookupCommand.clickableNameStatic(plugin, staffName, legacy));
         sender.sendMessage(out.toArray(new BaseComponent[0]));
     }
 
