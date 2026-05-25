@@ -66,6 +66,10 @@ public interface ReplayApi {
     /** Looks up a stored replay by its id (post-{@link #endCapture}). */
     @NotNull Optional<ReplayHandle> findReplay(long replayId);
 
+    /** Newest-first list of persisted replays, capped at {@code limit}.
+     *  Powers /replay list and any future replay browser. */
+    @NotNull java.util.List<ReplayHandle> listLatest(int limit);
+
     /** Latest replay matching a kind+sourceId pair, e.g. the replay
      *  attached to a specific report. */
     @NotNull Optional<ReplayHandle> findBySource(@NotNull ReplayKind kind, @NotNull String sourceId);

@@ -59,12 +59,17 @@ public final class ReplayBridge {
      *  the reported player and starts the follow-up recording. Returns
      *  the replay id, or empty when replay is disabled. */
     public @NotNull Optional<Long> captureForReport(@NotNull UUID targetUuid, long reportId) {
-        if (!isAvailable()) return Optional.empty();
+        if (!isAvailable()) {
+            log.warning("captureForReport(" + reportId + ") skipped — ReplayApi not registered");
+            return Optional.empty();
+        }
         Map<String, Object> meta = new HashMap<>();
         meta.put("reportId", reportId);
         long replayId = api.captureWindow(targetUuid, ReplayKind.REPORT,
                 String.valueOf(reportId), meta);
         inFlight.put(reportId, replayId);
+        log.info("Replay capture started for report #" + reportId + " (target=" + targetUuid
+                + ", replay-id=" + replayId + ")");
         return Optional.of(replayId);
     }
 
@@ -78,7 +83,12 @@ public final class ReplayBridge {
      *  remembered in {@link #captureForReport} and persists it. */
     public void endCaptureForReport(long reportId) {
         Long replayId = inFlight.remove(reportId);
-        if (replayId != null) endCapture(replayId);
+        if (replayId == null) {
+            log.fine("endCaptureForReport(" + reportId + ") — no in-flight capture");
+            return;
+        }
+        log.info("Ending replay capture for report #" + reportId + " (replay-id=" + replayId + ")");
+        endCapture(replayId);
     }
 
     /** Try to teleport the mod into the recorded replay for {@code reportId}.
@@ -87,17 +97,27 @@ public final class ReplayBridge {
      *  in this same call. Returns false when no recording exists at all —
      *  caller should fall back to a live teleport. */
     public boolean tryPlayForReport(@NotNull Player mod, long reportId) {
-        if (!isAvailable()) return false;
+        if (!isAvailable()) {
+            log.warning("tryPlayForReport(" + reportId + ") — ReplayApi not registered, falling back to live TP");
+            return false;
+        }
         // If we're still recording, finish on the spot so play() has a
         // file to read. This is the common path: mod accepts a fresh
         // report → capture has been running ~30s → flush → play.
         Long inFlightId = inFlight.remove(reportId);
         if (inFlightId != null) {
+            log.info("tryPlayForReport(" + reportId + ") — flushing in-flight replay-id=" + inFlightId);
             api.endCaptureBlocking(inFlightId);
         }
         Optional<de.eternal.replay.api.ReplayHandle> maybe =
                 api.findBySource(ReplayKind.REPORT, String.valueOf(reportId));
-        if (maybe.isEmpty()) return false;
+        if (maybe.isEmpty()) {
+            log.warning("tryPlayForReport(" + reportId + ") — no persisted replay found "
+                    + "(was capture started? was the server restarted between report+accept?)");
+            return false;
+        }
+        log.info("tryPlayForReport(" + reportId + ") — playing replay #" + maybe.get().id()
+                + " (" + maybe.get().fileSizeBytes() + " bytes)");
         api.play(mod, maybe.get().id());
         return true;
     }

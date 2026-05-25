@@ -141,6 +141,11 @@ public final class ReplayApiImpl implements ReplayApi {
     }
 
     @Override
+    public @NotNull java.util.List<ReplayHandle> listLatest(int limit) {
+        return store.listLatest(limit);
+    }
+
+    @Override
     public @NotNull Optional<ReplayHandle> findBySource(@NotNull ReplayKind kind, @NotNull String sourceId) {
         return store.findBySource(kind, sourceId);
     }
@@ -171,6 +176,17 @@ public final class ReplayApiImpl implements ReplayApi {
 
     public PlaybackSession sessionOf(@NotNull Player viewer) {
         return playbacks.get(viewer.getUniqueId());
+    }
+
+    /** Flushes every in-flight capture synchronously. Called from
+     *  EternalReplay.onDisable so a server restart doesn't lose in-progress
+     *  recordings (the reports they belong to live on in the DB). */
+    public void flushAllPending() {
+        if (pending.isEmpty()) return;
+        log.info("Flushing " + pending.size() + " in-flight replay capture(s) on disable...");
+        for (long id : new java.util.ArrayList<>(pending.keySet())) {
+            endCaptureBlocking(id);
+        }
     }
 
     /** State carried for a capture between {@link #captureWindow} and

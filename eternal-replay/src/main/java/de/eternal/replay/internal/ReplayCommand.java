@@ -65,21 +65,12 @@ public final class ReplayCommand implements CommandExecutor {
 
     private void list(@NotNull CommandSender s) {
         s.sendMessage("§d» §7Letzte Replays:");
-        // Iterate from highest id down — store doesn't expose a list
-        // method yet, so we scan 1..50 from the top.
-        long top = -1;
-        for (long i = 100_000; i > 0 && top < 0; i--) {
-            if (api.findReplay(i).isPresent()) { top = i; break; }
-        }
-        if (top < 0) {
+        java.util.List<ReplayHandle> rows = api.listLatest(10);
+        if (rows.isEmpty()) {
             s.sendMessage("§8 - §7Keine Replays vorhanden.");
             return;
         }
-        int shown = 0;
-        for (long i = top; i > 0 && shown < 10; i--) {
-            api.findReplay(i).ifPresent(h -> sendRow(s, h));
-            if (api.findReplay(i).isPresent()) shown++;
-        }
+        for (ReplayHandle h : rows) sendRow(s, h);
     }
 
     private void sendRow(@NotNull CommandSender s, @NotNull ReplayHandle h) {

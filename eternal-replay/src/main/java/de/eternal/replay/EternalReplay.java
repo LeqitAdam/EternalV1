@@ -72,8 +72,11 @@ public final class EternalReplay extends JavaPlugin {
             for (org.bukkit.entity.Player p : getServer().getOnlinePlayers()) {
                 if (api.isViewing(p.getUniqueId())) api.stopPlayback(p.getUniqueId());
             }
+            // Persist every still-in-flight capture so a server restart
+            // doesn't lose a report's recorded window.
+            api.flushAllPending();
+            getServer().getServicesManager().unregisterAll(this);
         }
-        if (api != null) getServer().getServicesManager().unregisterAll(this);
     }
 
     public @NotNull ReplayApi api() { return api; }

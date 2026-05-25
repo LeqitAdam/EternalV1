@@ -61,6 +61,16 @@ public final class ReplayStore {
                 .reduce((a, b) -> a.id() > b.id() ? a : b); // latest by id
     }
 
+    /** Newest-first list of persisted replays, capped at {@code limit}.
+     *  Used by /replay list — replaces the old O(n) scan that timed out
+     *  on real-world id ranges (timestamps reach 13 digits). */
+    public @NotNull java.util.List<ReplayHandle> listLatest(int limit) {
+        return byId.values().stream()
+                .sorted((a, b) -> Long.compare(b.id(), a.id()))
+                .limit(Math.max(1, limit))
+                .toList();
+    }
+
     /**
      * Persist a fresh replay. Records are sorted by relativeMs across all
      * source buffers; each buffer becomes one player index in the file
