@@ -79,6 +79,18 @@ public final class ReplayBridge {
         api.endCapture(replayId);
     }
 
+    /** Deletes EVERY replay attached to {@code reportId} on this server.
+     *  Used by the close-without-ban + pardon-after-ban cleanup paths.
+     *  Cross-server: each Spigot's ActionPoller tries to delete; only
+     *  the one with the file actually succeeds, others no-op. */
+    public void deleteReplayForReport(long reportId) {
+        if (!isAvailable()) return;
+        int removed = api.deleteReplaysBySource(ReplayKind.REPORT, String.valueOf(reportId));
+        if (removed > 0) {
+            log.info("Deleted " + removed + " replay(s) for report #" + reportId);
+        }
+    }
+
     /** End-capture by report id — looks up the in-flight replay we
      *  remembered in {@link #captureForReport} and persists it. */
     public void endCaptureForReport(long reportId) {

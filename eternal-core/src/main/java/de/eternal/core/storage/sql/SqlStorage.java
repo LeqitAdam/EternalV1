@@ -1445,6 +1445,22 @@ public final class SqlStorage implements EternalStorage {
         }
     }
 
+    @Override
+    public @NotNull List<ReportEntry> findReportsByBanId(long banId) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_reports WHERE ban_id = ? AND hidden = 0")) {
+            ps.setLong(1, banId);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ReportEntry> out = new ArrayList<>();
+                while (rs.next()) out.add(readReport(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findReportsByBanId failed", ex);
+        }
+    }
+
     // Suppress unused warning; kept for future binary-typed columns.
     @SuppressWarnings("unused")
     private static Timestamp ts(Instant i) {

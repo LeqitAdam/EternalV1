@@ -303,4 +303,86 @@ public final class PlaybackSession {
 
     public @NotNull Player viewer() { return viewer; }
     public @Nullable ReplayHandle replay() { return handle; }
+
+    /**
+     * Open a read-only chest-GUI showing the inventory snapshot for the
+     * tracked player whose ghost is nearest to {@code viewer.getLocation()}
+     * at the current playhead. Called by the right-click-air hotbar
+     * interaction; lets the mod inspect what each player was carrying at
+     * that moment without breaking the replay flow.
+     */
+    public void openNearestInventorySnapshot() {
+        // Find the closest ghost in 3D space.
+        java.util.Map.Entry<Integer, GhostAvatar> nearest = null;
+        double bestSq = Double.MAX_VALUE;
+        Location vp = viewer.getLocation();
+        for (var e : ghosts.entrySet()) {
+            // GhostAvatar has no public "location" — best-effort heuristic:
+            // look up the most recent MOVEMENT frame for this player up to
+            // the playhead and use that position.
+            MovementFrame mf = lastMovementOf(e.getKey());
+            if (mf == null) continue;
+            double dx = mf.x() - vp.getX(), dy = mf.y() - vp.getY(), dz = mf.z() - vp.getZ();
+            double d = dx * dx + dy * dy + dz * dz;
+            if (d < bestSq) { bestSq = d; nearest = e; }
+        }
+        if (nearest == null) {
+            viewer.sendMessage("§dReplay §8» §cKein Spieler in der Nähe.");
+            return;
+        }
+        InventorySnapshot snap = lastInventoryOf(nearest.getKey());
+        if (snap == null) {
+            viewer.sendMessage("§dReplay §8» §7Kein Inventar-Snapshot bisher für diesen Spieler.");
+            return;
+        }
+        ReplayCodec.PlayerRef ref = players.get(nearest.getKey());
+        String title = "§dInventar §8» §f" + (ref == null ? "?" : ref.name());
+        // 5 rows = 45 slots — passt 36 main + 4 armor + 1 offhand + Lücken.
+        org.bukkit.inventory.Inventory inv = org.bukkit.Bukkit.createInventory(
+                new SnapshotInventoryHolder(), 45, title);
+        ItemStack[] items = de.eternal.replay.internal.recorder.InventoryCodec.decode(snap.base64Data());
+        for (int i = 0; i < 36 && i < items.length; i++) {
+            if (items[i] != null) inv.setItem(i, items[i]);
+        }
+        // Rüstung in der 5. Reihe für Visualisierung (Slots 36-39).
+        if (items.length > 36 && items[36] != null) inv.setItem(36, items[36]); // Helm
+        if (items.length > 37 && items[37] != null) inv.setItem(37, items[37]); // Brust
+        if (items.length > 38 && items[38] != null) inv.setItem(38, items[38]); // Hose
+        if (items.length > 39 && items[39] != null) inv.setItem(39, items[39]); // Schuhe
+        if (items.length > 40 && items[40] != null) inv.setItem(40, items[40]); // Off-hand
+        viewer.openInventory(inv);
+    }
+
+    /** Marker holder so PlaybackListener's InventoryClick can identify
+     *  the read-only snapshot GUI vs the viewer's own inventory. */
+    public static final class SnapshotInventoryHolder implements org.bukkit.inventory.InventoryHolder {
+        private org.bukkit.inventory.Inventory inv;
+        @Override public @NotNull org.bukkit.inventory.Inventory getInventory() { return inv; }
+    }
+
+    private MovementFrame lastMovementOf(int playerIdx) {
+        MovementFrame last = null;
+        for (int i = 0; i < cursor; i++) {
+            var r = records.get(i);
+            if (r.type() == de.eternal.replay.model.Recordable.Type.MOVEMENT
+                    && r.playerIdx() == playerIdx
+                    && r.payload() instanceof MovementFrame mf) {
+                last = mf;
+            }
+        }
+        return last;
+    }
+
+    private InventorySnapshot lastInventoryOf(int playerIdx) {
+        InventorySnapshot last = null;
+        for (int i = 0; i < cursor; i++) {
+            var r = records.get(i);
+            if (r.type() == de.eternal.replay.model.Recordable.Type.INVENTORY
+                    && r.playerIdx() == playerIdx
+                    && r.payload() instanceof InventorySnapshot snap) {
+                last = snap;
+            }
+        }
+        return last;
+    }
 }

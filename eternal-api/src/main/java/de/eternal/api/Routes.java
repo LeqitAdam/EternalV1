@@ -372,6 +372,15 @@ public final class Routes {
                 : String.valueOf(body.getOrDefault("reason", "API pardon"));
         boolean ok = storage.pardonPunishment(id, p.uuid(), p.name(), reason);
         if (!ok) throw new NotFoundResponse("punishment not active");
+        // Replay-Lifecycle: bei jedem Unban die Replays loeschen die
+        // gegen diesen Bann verlinkt waren. Permanent-Banns bleiben so
+        // ihre Replay-Datei behalten, bis sie aufgehoben werden.
+        if (p.uuid() != null) {
+            for (var report : storage.findReportsByBanId(id)) {
+                storage.queueAction("DELETE_REPLAY", p.uuid(),
+                        Json.GSON.toJson(Map.of("reportId", report.id())));
+            }
+        }
         ctx.json(Map.of("ok", true));
     }
 
@@ -428,13 +437,28 @@ public final class Routes {
 
     @SuppressWarnings("unchecked")
     private void closeReport(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        var caller = auth.requireStaff(ctx);
         long id = parseLong(ctx, "id");
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         String resolution = body == null ? "closed via API"
                 : String.valueOf(body.getOrDefault("resolution", "closed via API"));
+        // Vor dem Schliessen schauen ob ein Bann mit diesem Report verlinkt
+        // ist — wenn nein → Replay loeschen, wenn ja → Replay behalten
+        // (faellt erst beim Unban). banFromReport hat vorher
+        // linkReportToBan aufgerufen, wenn aus dem Report ein Bann wurde.
+        boolean hasBan = storage.findBanForReport(id).isPresent();
         boolean ok = storage.closeReport(id, resolution);
         if (!ok) throw new NotFoundResponse();
+        if (caller.uuid() != null) {
+            // END_CAPTURE flusht den noch laufenden Recorder fuer den Report
+            storage.queueAction("END_CAPTURE", caller.uuid(),
+                    Json.GSON.toJson(Map.of("reportId", id)));
+            if (!hasBan) {
+                // Kein Bann → Replay ist Beweismaterial-frei und kann weg.
+                storage.queueAction("DELETE_REPLAY", caller.uuid(),
+                        Json.GSON.toJson(Map.of("reportId", id)));
+            }
+        }
         ctx.json(Map.of("ok", true));
     }
 
@@ -591,10 +615,19 @@ public final class Routes {
         long id = parseLong(ctx, "id");
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         if (body == null) throw new BadRequestResponse("missing body");
-        long remainingSec = body.get("remainingSeconds") instanceof Number n ? n.longValue() : -2L;
-        if (remainingSec < 0) throw new BadRequestResponse("remainingSeconds must be >= 0");
-        String message = String.valueOf(body.getOrDefault("message", "")).trim();
-        if (message.isEmpty()) throw new BadRequestResponse("message must not be empty");
+        // Bevorzugt: "duration" als DurationParser-String (1d, 6h, 30m,
+        // permanent). Fallback fuer Alt-Clients: "remainingSeconds" als
+        // Zahl. Frontend schickt seit jetzt nur noch duration.
+        long remainingSec;
+        Object durObj = body.get("duration");
+        if (durObj instanceof String s && !s.isBlank()) {
+            remainingSec = de.eternal.core.time.DurationParser.parseToSeconds(s);
+            if (remainingSec < 0) remainingSec = -1; // permanent
+        } else if (body.get("remainingSeconds") instanceof Number n) {
+            remainingSec = n.longValue();
+        } else {
+            throw new BadRequestResponse("either 'duration' (string) or 'remainingSeconds' required");
+        }
 
         UnbanAppeal appeal = storage.findAppeal(id).orElseThrow(NotFoundResponse::new);
         if (appeal.status() != UnbanAppeal.Status.PENDING) {
@@ -602,21 +635,25 @@ public final class Routes {
         }
 
         // Decide appeal first so the audit trail is committed even if the
-        // duration change races against the user joining.
-        java.time.Instant newExpires = java.time.Instant.now().plusSeconds(remainingSec);
+        // duration change races against the user joining. Permanent
+        // shortening (rare, but possible) wird via expires_at=NULL umgesetzt.
+        java.time.Instant newExpires = remainingSec < 0 ? null
+                : java.time.Instant.now().plusSeconds(remainingSec);
+        String auditReason = remainingSec < 0
+                ? "Verkuerzt auf permanent"
+                : "Verkuerzt auf " + remainingSec + "s";
         if (storage instanceof de.eternal.core.storage.sql.SqlStorage sql) {
             sql.decideAppealFull(id, p.uuid(), p.name(),
-                    UnbanAppeal.Status.SHORTENED,
-                    "Verkuerzt auf " + remainingSec + "s",
-                    message, remainingSec);
-            sql.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires, message);
+                    UnbanAppeal.Status.SHORTENED, auditReason, null,
+                    remainingSec < 0 ? null : remainingSec);
+            sql.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires, null);
         } else {
-            // Fallback for non-Sql backends — at least decision lands.
             storage.decideAppeal(id, p.uuid(), p.name(),
-                    UnbanAppeal.Status.SHORTENED, "Verkuerzt: " + message);
+                    UnbanAppeal.Status.SHORTENED, auditReason);
             storage.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires);
         }
-        ctx.json(Map.of("ok", true, "newExpiresAt", newExpires.toEpochMilli()));
+        ctx.json(Map.of("ok", true,
+                "newExpiresAt", newExpires == null ? -1L : newExpires.toEpochMilli()));
     }
 
     /**
@@ -676,6 +713,19 @@ public final class Routes {
         long banId = storage.insertPunishment(draft);
         storage.closeReport(reportId, "Banned (#" + banId + "): " + label + " durch " + p.name());
         storage.linkReportToBan(reportId, banId);
+        // Queue a KICK against the BANNED player's UUID — ihr Spigot's
+        // ActionPoller findet ihn online und kickt ihn sofort. Ohne das
+        // bleibt der Spieler eingeloggt bis er von alleine rejoint.
+        String durationLabel = durationSec < 0 ? "permanent" : (durationSec + "s");
+        String kickScreen = "&dEternal &8»\n\n&7Du wurdest vom Netzwerk &cgebannt&7.\n\n"
+                + "&dGrund&8: &b" + label + "\n"
+                + "&dDauer&8: &7" + durationLabel + "\n"
+                + "&dBann-ID&8: &c#" + banId + "\n\n"
+                + "&dBeschwerde&8: &f/appeal";
+        storage.queueAction("KICK", report.targetUuid(),
+                Json.GSON.toJson(Map.of(
+                        "reason", "Banned: " + label,
+                        "screen", kickScreen)));
         ctx.json(Map.of("ok", true, "banId", banId, "reportId", reportId));
     }
 

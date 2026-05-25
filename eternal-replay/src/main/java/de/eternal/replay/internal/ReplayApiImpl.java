@@ -201,6 +201,16 @@ public final class ReplayApiImpl implements ReplayApi {
         return playbacks.containsKey(viewerUuid);
     }
 
+    @Override
+    public boolean deleteReplay(long replayId) {
+        return store.delete(replayId);
+    }
+
+    @Override
+    public int deleteReplaysBySource(@NotNull de.eternal.replay.api.ReplayKind kind, @NotNull String sourceId) {
+        return store.deleteBySource(kind, sourceId);
+    }
+
     public PlaybackSession sessionOf(@NotNull Player viewer) {
         return playbacks.get(viewer.getUniqueId());
     }

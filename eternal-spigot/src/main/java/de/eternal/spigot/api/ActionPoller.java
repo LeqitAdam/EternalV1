@@ -62,8 +62,62 @@ public final class ActionPoller {
     private void handle(@NotNull UUID modUuid, @NotNull ApiBridge.PendingAction action) {
         switch (action.type()) {
             case "TELEPORT" -> teleport(modUuid, action.payload());
+            case "KICK" -> kick(modUuid, action.payload());
+            case "DELETE_REPLAY" -> deleteReplay(action.payload());
+            case "END_CAPTURE" -> endCapture(action.payload());
             default -> plugin.getLogger().warning("Unknown action type: " + action.type());
         }
+    }
+
+    /** Force-kicks the player targeted by {@code modUuid} (this action is
+     *  queued AGAINST the banned player, not the mod). Used by the web
+     *  ban-from-report flow so a banned online player is removed
+     *  immediately instead of next-rejoin. */
+    private void kick(@NotNull UUID targetUuid, @NotNull String payload) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            Player target = Bukkit.getPlayer(targetUuid);
+            if (target == null) return;
+            String kickReason;
+            try {
+                JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
+                kickReason = body.has("reason") ? body.get("reason").getAsString()
+                        : "Du wurdest gebannt.";
+                // Wenn die Action auch einen formatierten Kick-Screen mitliefert,
+                // den nehmen (er sieht hübscher aus mit Bann-ID + Dauer).
+                if (body.has("screen")) kickReason = body.get("screen").getAsString();
+            } catch (Exception ex) { kickReason = "Du wurdest gebannt."; }
+            target.kickPlayer(org.bukkit.ChatColor.translateAlternateColorCodes('&', kickReason));
+        });
+    }
+
+    /** Triggered by the web close-without-ban flow. Tries to delete the
+     *  replay file on THIS server; no-op when the file lives elsewhere
+     *  (other servers in the cluster will also pick this action up via
+     *  their own polling). */
+    private void deleteReplay(@NotNull String payload) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
+                long reportId = body.get("reportId").getAsLong();
+                plugin.replayBridge().deleteReplayForReport(reportId);
+            } catch (Exception ex) {
+                plugin.getLogger().warning("DELETE_REPLAY payload invalid: " + ex.getMessage());
+            }
+        });
+    }
+
+    /** Spigot-side end-capture for a report — usually fired by the API on
+     *  report-close to flush the in-flight buffer to disk. */
+    private void endCapture(@NotNull String payload) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
+                long reportId = body.get("reportId").getAsLong();
+                plugin.replayBridge().endCaptureForReport(reportId);
+            } catch (Exception ex) {
+                plugin.getLogger().warning("END_CAPTURE payload invalid: " + ex.getMessage());
+            }
+        });
     }
 
     private void teleport(@NotNull UUID modUuid, @NotNull String payload) {

@@ -109,4 +109,13 @@ public interface ReplayApi {
 
     /** Reports whether a viewer is currently in a playback session. */
     boolean isViewing(@NotNull UUID viewerUuid);
+
+    /** Deletes a replay (file + index entry) by id. Returns true if a
+     *  matching replay existed on this server. Used by the
+     *  "report-closed-without-ban" cleanup path. */
+    boolean deleteReplay(long replayId);
+
+    /** Deletes EVERY replay attached to {@code (kind, sourceId)} on this
+     *  server. Returns the number of removed entries. */
+    int deleteReplaysBySource(@NotNull ReplayKind kind, @NotNull String sourceId);
 }

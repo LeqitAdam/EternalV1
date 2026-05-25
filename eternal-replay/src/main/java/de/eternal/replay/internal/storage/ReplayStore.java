@@ -61,6 +61,58 @@ public final class ReplayStore {
                 .reduce((a, b) -> a.id() > b.id() ? a : b); // latest by id
     }
 
+    /** Removes a replay from disk + index. Returns true if it existed. */
+    public boolean delete(long id) {
+        ReplayHandle handle = byId.remove(id);
+        if (handle == null) return false;
+        try {
+            java.nio.file.Files.deleteIfExists(handle.filePath());
+        } catch (java.io.IOException ignored) { /* best effort */ }
+        rewriteIndex();
+        return true;
+    }
+
+    /** Removes every replay matching {@code (kind, sourceId)}. */
+    public int deleteBySource(@NotNull ReplayKind kind, @NotNull String sourceId) {
+        java.util.List<Long> toDelete = byId.values().stream()
+                .filter(h -> h.kind() == kind && sourceId.equals(h.sourceId()))
+                .map(ReplayHandle::id).toList();
+        int count = 0;
+        for (long id : toDelete) {
+            if (delete(id)) count++;
+        }
+        return count;
+    }
+
+    /** Rewrites the flat-text index from scratch after a removal. Simpler
+     *  than tracking line offsets; replays only happen at moderation
+     *  speed so a full rewrite is fine. */
+    private void rewriteIndex() {
+        StringBuilder sb = new StringBuilder();
+        for (ReplayHandle h : byId.values()) {
+            sb.append(h.id()).append('|')
+              .append(h.kind().name()).append('|')
+              .append(h.sourceId() == null ? "" : h.sourceId()).append('|')
+              .append(h.serverName()).append('|')
+              .append(h.startedAt().toEpochMilli()).append('|')
+              .append(h.endedAt().toEpochMilli()).append('|')
+              .append(baseDir.relativize(h.filePath())).append('|')
+              .append(h.fileSizeBytes()).append('|')
+              .append(h.primaryPlayerUuid() == null ? "" : h.primaryPlayerUuid()).append('|')
+              .append(h.primaryPlayerName()).append('|');
+            for (int i = 0; i < h.otherPlayerUuids().size(); i++) {
+                if (i > 0) sb.append(',');
+                sb.append(h.otherPlayerUuids().get(i));
+            }
+            sb.append('\n');
+        }
+        try {
+            java.nio.file.Files.writeString(indexFile, sb.toString(),
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (java.io.IOException ignored) { /* best effort */ }
+    }
+
     /** Newest-first list of persisted replays, capped at {@code limit}.
      *  Used by /replay list — replaces the old O(n) scan that timed out
      *  on real-world id ranges (timestamps reach 13 digits). */

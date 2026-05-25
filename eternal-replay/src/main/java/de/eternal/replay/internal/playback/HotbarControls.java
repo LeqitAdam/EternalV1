@@ -30,7 +30,7 @@ public final class HotbarControls {
 
     /** Tag value tells the listener what action to run. */
     public enum Control {
-        PLAY_PAUSE, SEEK_BACK, SPEED_DOWN, INFO, SPEED_UP, SEEK_FWD, EXIT
+        PLAY_PAUSE, SEEK_BACK, SPEED_DOWN, INFO, SPEED_UP, SEEK_FWD, EXIT, OPEN_INVENTORY
     }
 
     private HotbarControls() {
@@ -40,6 +40,7 @@ public final class HotbarControls {
         viewer.getInventory().clear();
         viewer.getInventory().setItem(0, item(Material.EMERALD, "§a§lPlay / Pause", Control.PLAY_PAUSE));
         viewer.getInventory().setItem(1, item(Material.ARROW, "§b§l« -10s", Control.SEEK_BACK));
+        viewer.getInventory().setItem(2, item(Material.CHEST, "§e§lInventar (nähester Spieler)", Control.OPEN_INVENTORY));
         viewer.getInventory().setItem(3, item(Material.CLAY_BALL, "§7§lSpeed -", Control.SPEED_DOWN));
         viewer.getInventory().setItem(4, item(Material.MAP, "§d§lReplay-Info", Control.INFO));
         viewer.getInventory().setItem(5, item(Material.SLIME_BALL, "§a§lSpeed +", Control.SPEED_UP));

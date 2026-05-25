@@ -128,6 +128,10 @@ public interface EternalStorage extends AutoCloseable {
     /** Bann-ID die zu einem Report fuehrte (oder leer). */
     @NotNull java.util.Optional<Long> findBanForReport(long reportId);
 
+    /** Inverse: alle Reports die zu diesem Bann verlinkt wurden. Wird vom
+     *  Unban-Flow genutzt um zugehoerige Replays zu loeschen. */
+    @NotNull List<ReportEntry> findReportsByBanId(long banId);
+
     /* --- Account-Link & Web-Sessions ------------------------------------ */
 
     void createLinkCode(@NotNull LinkCode code);

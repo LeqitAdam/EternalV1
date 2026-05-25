@@ -85,7 +85,7 @@ export class ApiService {
 
   /** Verkürzt einen offenen Antrag um {@code remainingSeconds} und schickt
    *  dem Spieler die übergebene Nachricht. */
-  shortenAppeal(id: number, body: { remainingSeconds: number; message: string }): Observable<{ ok: boolean; newExpiresAt: number }> {
+  shortenAppeal(id: number, body: { duration: string }): Observable<{ ok: boolean; newExpiresAt: number }> {
     return this.http.post<{ ok: boolean; newExpiresAt: number }>(this.url(`/appeals/${id}/shorten`), body);
   }
 

@@ -162,26 +162,39 @@ report-reasons:
     label: "Sonstiges"
 
 # Vorgefertigte Verkuerzungs-Vorlagen fuer Unban-Antraege.
-# Bei der Bearbeitung eines Antrags kann der Mod eine Vorlage waehlen.
-# duration: neue REST-Dauer ab Verkuerzung (DurationParser-Syntax)
-# message:  Text, den der Spieler im Dashboard + Kick-Screen sieht
+# Mod waehlt eine Vorlage; die Dauer kann mit DurationParser-Syntax
+# (1d, 6h, 30m, permanent) ueberschrieben werden — Sekunden-Eingabe
+# wird intern umgerechnet, der Mod tippt menschenlesbar.
+# message ist intern als decision_reason gespeichert (nicht user-facing).
 appeal-shorten-templates:
-  - id: half
-    label: "Auf 50% verkuerzen"
+  - id: immediate
+    label: "Sofort entbannen"
     duration: 0s
-    message: "Dein Antrag wurde teilweise genehmigt. Dein Bann wurde verkuerzt - bitte halte dich beim naechsten Mal an die Regeln."
-
-  - id: 1d
-    label: "Auf 1 Tag verkuerzen"
-    duration: 1d
-    message: "Dein Bann wurde nach Pruefung auf 1 Tag verkuerzt. Wir hoffen auf besseres Verhalten."
 
   - id: 1h
     label: "Auf 1 Stunde verkuerzen"
     duration: 1h
-    message: "Dein Bann wurde auf 1 Stunde verkuerzt. Bitte lies dir die Regeln noch einmal durch."
 
-  - id: 5m-warning
-    label: "Auf 5 Minuten verkuerzen (Verwarnung)"
-    duration: 5m
-    message: "Wir betrachten dies als Verwarnung. Bei naechstem Verstoss erfolgt eine laengere Strafe."
+  - id: 6h
+    label: "Auf 6 Stunden verkuerzen"
+    duration: 6h
+
+  - id: 1d
+    label: "Auf 1 Tag verkuerzen"
+    duration: 1d
+
+  - id: 3d
+    label: "Auf 3 Tage verkuerzen"
+    duration: 3d
+
+  - id: 7d
+    label: "Auf 1 Woche verkuerzen"
+    duration: 7d
+
+  - id: 14d
+    label: "Auf 2 Wochen verkuerzen"
+    duration: 14d
+
+  - id: 30d
+    label: "Auf 30 Tage verkuerzen"
+    duration: 30d

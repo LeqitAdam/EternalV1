@@ -247,12 +247,12 @@ export class PlayerDetailComponent implements OnChanges {
       modifiedByDisplay: null,
       reportStatus: r.status
     });
-    // Oldest first → newest at the bottom of the list, mirroring the
-    // in-game /history scrollback (and how a chat-style transcript reads).
+    // Newest first im Web — anders als der ingame-Chat-Scrollback. Im
+    // Dashboard erwartet man oben das aktuellste.
     return [
       ...d.history.map(fromPunishment),
       ...d.reports.map(fromReport)
-    ].sort((a, b) => a.issuedAt - b.issuedAt);
+    ].sort((a, b) => b.issuedAt - a.issuedAt);
   }
 
   /** Difference between issued and expires, formatted as "Xd Yh Zm" or "permanent". */
