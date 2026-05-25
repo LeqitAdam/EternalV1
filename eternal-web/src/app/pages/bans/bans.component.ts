@@ -42,7 +42,8 @@ import { TextPromptDialogComponent, TextPromptDialogData }
 
         <ng-container matColumnDef="reason">
           <th mat-header-cell *matHeaderCellDef class="!text-ink-300">Grund</th>
-          <td mat-cell *matCellDef="let b">{{ b.reasonLabel }}</td>
+          <!-- Reason labels are aqua across in-game + dashboard. -->
+          <td mat-cell *matCellDef="let b" class="!text-cyan-300">{{ b.reasonLabel }}</td>
         </ng-container>
 
         <ng-container matColumnDef="issuer">

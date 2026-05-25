@@ -1009,6 +1009,31 @@ public final class SqlStorage implements EternalStorage {
     }
 
     @Override
+    public @NotNull List<Session> listActiveSessions() {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_sessions WHERE expires_at > ? ORDER BY created_at DESC")) {
+            ps.setLong(1, System.currentTimeMillis());
+            try (ResultSet rs = ps.executeQuery()) {
+                List<Session> out = new ArrayList<>();
+                while (rs.next()) {
+                    out.add(new Session(
+                            rs.getString("token"),
+                            UUID.fromString(rs.getString("user_uuid")),
+                            rs.getString("user_name"),
+                            rs.getString("role"),
+                            Instant.ofEpochMilli(rs.getLong("created_at")),
+                            Instant.ofEpochMilli(rs.getLong("expires_at"))
+                    ));
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("listActiveSessions failed", ex);
+        }
+    }
+
+    @Override
     public long queueAction(@NotNull String type, @NotNull UUID targetStaff, @NotNull String payload) {
         try (Connection c = conn();
              PreparedStatement ps = c.prepareStatement(

@@ -68,7 +68,9 @@ public final class HistoryCommand extends Command {
                 Long banId = plugin.storage().findBanForReport(r.id()).orElse(null);
                 rows.add(Row.fromReport(r, banId));
             }
-            rows.sort(Comparator.comparing(Row::timestamp).reversed());
+            // Oldest first → newest at the bottom of the scrollback, matching
+            // how regular chat reads (recent stuff is what stays visible).
+            rows.sort(Comparator.comparing(Row::timestamp));
 
             Set<UUID> staffUuids = new HashSet<>();
             for (Row row : rows) if (row.staffUuid != null) staffUuids.add(row.staffUuid);

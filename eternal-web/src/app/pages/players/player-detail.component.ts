@@ -7,6 +7,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { PlayerLookup, Punishment, Report } from '../../core/models';
+import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
 
 /** EU date format that matches the in-game pattern (yyyy-MM-dd HH:mm). */
 const EU_DATE_FORMAT = 'yyyy-MM-dd HH:mm';
@@ -18,6 +19,9 @@ type HistoryRow = {
   reasonLabel: string;
   staffName: string;
   staffUuid: string | null;
+  /** Cached &-coded display string for the staff/reporter, when known.
+   *  Resolved on the fly from staffDisplayByUuid in the component. */
+  staffDisplay: string | null;
   issuedAt: number;
   expiresAt: number | null;
   active: boolean;
@@ -32,7 +36,7 @@ type HistoryRow = {
 @Component({
   selector: 'et-player-detail',
   standalone: true,
-  imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, RouterLink],
+  imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, RouterLink, LegacyTextPipe],
   template: `
     <button mat-stroked-button routerLink="/players" class="mb-4">
       <mat-icon>arrow_back</mat-icon> Zur Suche
@@ -46,7 +50,9 @@ type HistoryRow = {
         <div class="flex gap-6 items-start">
           <img [src]="head(d.profile.uuid)" class="w-24 h-24 rounded" alt="head" />
           <div class="flex-1">
-            <h1 class="text-3xl font-bold">{{ d.profile.name }}</h1>
+            <!-- Show the rank-coloured DisplayName from CloudNet-Chat when
+                 we have one; fall back to the plain name otherwise. -->
+            <h1 class="text-3xl font-bold" [innerHTML]="(d.profile.lastDisplayName || d.profile.name) | legacy"></h1>
             <div class="text-ink-300 text-sm font-mono">{{ d.profile.uuid }}</div>
             <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div><span class="text-ink-300">Rang:</span> <span class="text-eternal-300 ml-2">{{ d.profile.lastGroupName || '—' }}</span></div>
@@ -95,26 +101,28 @@ type HistoryRow = {
               <span class="font-mono text-xs text-ink-400">{{ row.issuedAt | date:fmt }}</span>
             </div>
 
-            <!-- Body: 2-column grid of labelled fields -->
+            <!-- Body: 2-column grid of labelled fields. Field names use the
+                 Eternal-pink accent (matches in-game &d labels); reason
+                 labels are cyan (&b) globally per the spec. -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div><span class="text-ink-300">Grund:</span> <span class="ml-2">{{ row.reasonLabel }}</span></div>
+              <div><span class="text-eternal-300">Grund:</span> <span class="ml-2 text-cyan-300">{{ row.reasonLabel }}</span></div>
               <div>
-                <span class="text-ink-300">{{ row.kind === 'REPORT' ? 'Reporter' : 'Staff' }}:</span>
-                <span class="ml-2">{{ row.staffName }}</span>
+                <span class="text-eternal-300">{{ row.kind === 'REPORT' ? 'Reporter' : 'Staff' }}:</span>
+                <span class="ml-2" [innerHTML]="(row.staffDisplay || row.staffName) | legacy"></span>
               </div>
 
               <div *ngIf="row.kind !== 'REPORT'">
-                <span class="text-ink-300">Dauer:</span>
+                <span class="text-eternal-300">Dauer:</span>
                 <span class="ml-2">{{ formatDuration(row) }}</span>
               </div>
               <div *ngIf="row.kind !== 'REPORT'">
-                <span class="text-ink-300">Läuft ab:</span>
+                <span class="text-eternal-300">Läuft ab:</span>
                 <span class="ml-2 font-mono">{{ row.expiresAt ? (row.expiresAt | date:fmt) : 'permanent' }}</span>
               </div>
 
               <!-- Pardon details if applicable -->
               <div *ngIf="row.pardonedAt" class="md:col-span-2">
-                <span class="text-ink-300">Aufgehoben:</span>
+                <span class="text-eternal-300">Aufgehoben:</span>
                 <span class="ml-2 font-mono">{{ row.pardonedAt | date:fmt }}</span>
                 <span *ngIf="row.pardonByName" class="ml-2 text-ink-300">durch</span>
                 <span *ngIf="row.pardonByName" class="ml-1">{{ row.pardonByName }}</span>
@@ -167,6 +175,10 @@ export class PlayerDetailComponent implements OnChanges {
       reasonLabel: p.reasonLabel,
       staffName: p.issuerName,
       staffUuid: p.issuerUuid,
+      // DisplayName-lookup-by-uuid would require an extra round-trip per
+      // unique issuer; we leave it null for now and let the legacy pipe
+      // fall back to the plain staffName. Fix when batched lookup lands.
+      staffDisplay: null,
       issuedAt: p.issuedAt,
       expiresAt: p.expiresAt,
       active: p.active,
@@ -182,6 +194,7 @@ export class PlayerDetailComponent implements OnChanges {
       reasonLabel: r.reasonLabel,
       staffName: r.reporterName,
       staffUuid: r.reporterUuid,
+      staffDisplay: null,
       issuedAt: r.createdAt,
       expiresAt: null,
       active: r.status !== 'CLOSED',
@@ -192,10 +205,12 @@ export class PlayerDetailComponent implements OnChanges {
       modifiedByName: null,
       reportStatus: r.status
     });
+    // Oldest first → newest at the bottom of the list, mirroring the
+    // in-game /history scrollback (and how a chat-style transcript reads).
     return [
       ...d.history.map(fromPunishment),
       ...d.reports.map(fromReport)
-    ].sort((a, b) => b.issuedAt - a.issuedAt);
+    ].sort((a, b) => a.issuedAt - b.issuedAt);
   }
 
   /** Difference between issued and expires, formatted as "Xd Yh Zm" or "permanent". */

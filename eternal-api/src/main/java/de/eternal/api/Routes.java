@@ -76,6 +76,31 @@ public final class Routes {
         app.post("/reports/{id}/teleport", this::teleportToReport);
         app.post("/reports/{id}/ban", this::banFromReport);
         app.get("/stats", this::stats);
+        app.get("/admin/active-sessions", this::adminActiveSessions);
+    }
+
+    /**
+     * Lists currently-valid web sessions (token not yet expired). Used by
+     * the admin "Active Users" overview to see who is logged into the
+     * dashboard right now — split into staff and players via the role.
+     * Tokens themselves are NOT included in the response so screen-shots
+     * can't accidentally leak credentials.
+     */
+    private void adminActiveSessions(@NotNull io.javalin.http.Context ctx) {
+        auth.requireAdmin(ctx);
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (var s : storage.listActiveSessions()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("userUuid", s.userUuid().toString());
+            m.put("userName", s.userName());
+            m.put("role", s.role());
+            m.put("createdAt", s.createdAt().toEpochMilli());
+            m.put("expiresAt", s.expiresAt().toEpochMilli());
+            storage.findProfile(s.userUuid())
+                    .ifPresent(p -> m.put("lastDisplayName", p.lastDisplayName()));
+            out.add(m);
+        }
+        ctx.json(out);
     }
 
     /* --- auth / link flow ---------------------------------------------- */

@@ -39,6 +39,27 @@ export class ApiService {
   }
   stats(): Observable<StaffStat[]> { return this.http.get<StaffStat[]>(this.url('/stats')); }
 
+  /** Admin-only: lists everyone whose web token is still valid. Returns
+   *  ADMIN/MOD/PLAYER rows with the rank-coloured DisplayName cached at
+   *  last in-game join. */
+  adminActiveSessions(): Observable<Array<{
+    userUuid: string;
+    userName: string;
+    role: 'ADMIN' | 'MOD' | 'PLAYER';
+    createdAt: number;
+    expiresAt: number;
+    lastDisplayName?: string;
+  }>> {
+    return this.http.get<Array<{
+      userUuid: string;
+      userName: string;
+      role: 'ADMIN' | 'MOD' | 'PLAYER';
+      createdAt: number;
+      expiresAt: number;
+      lastDisplayName?: string;
+    }>>(this.url('/admin/active-sessions'));
+  }
+
   playerLookup(name: string): Observable<PlayerLookup> {
     return this.http.get<PlayerLookup>(this.url(`/players/${encodeURIComponent(name)}`));
   }

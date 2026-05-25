@@ -38,6 +38,10 @@ import { ApiService } from '../../core/api.service';
             <a routerLink="/appeals" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>contact_support</mat-icon><span>Entbannungsanträge</span>
             </a>
+            <!-- Admin-only: shows who is currently logged in to the dashboard. -->
+            <a *ngIf="isAdmin()" routerLink="/active-users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+              <mat-icon>groups</mat-icon><span>Aktive User</span>
+            </a>
           </ng-container>
         </nav>
 
@@ -84,6 +88,10 @@ export class ShellComponent {
   isStaff() {
     const role = this.auth.me()?.role;
     return role === 'MOD' || role === 'ADMIN';
+  }
+
+  isAdmin() {
+    return this.auth.me()?.role === 'ADMIN';
   }
 
   logout() {

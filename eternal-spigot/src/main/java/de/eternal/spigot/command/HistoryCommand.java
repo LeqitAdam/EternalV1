@@ -77,7 +77,9 @@ public final class HistoryCommand implements CommandExecutor {
                         Long banId = plugin.storage().findBanForReport(r.id()).orElse(null);
                         rows.add(Row.fromReport(r, banId));
                     }
-                    rows.sort(Comparator.comparing(Row::timestamp).reversed());
+                    // Oldest first → newest at the bottom of the scrollback, matching
+                    // how regular chat reads (recent stuff is what stays visible).
+                    rows.sort(Comparator.comparing(Row::timestamp));
 
                     // Pre-fetch staff profiles for rank prefix AND cached
                     // DisplayName (rank-coloured form from CloudNet-Chat). One

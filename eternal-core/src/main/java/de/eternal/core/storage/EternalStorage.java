@@ -146,6 +146,13 @@ public interface EternalStorage extends AutoCloseable {
 
     boolean deleteSession(@NotNull String token);
 
+    /**
+     * All not-yet-expired web sessions. Used by the admin dashboard's
+     * "active users" overview — distinguishes staff from regular players
+     * via the {@link Session#role()} field.
+     */
+    @NotNull List<Session> listActiveSessions();
+
     /* --- Unban-Antraege ------------------------------------------------- */
 
     long createAppeal(@NotNull de.eternal.core.model.UnbanAppeal appeal);

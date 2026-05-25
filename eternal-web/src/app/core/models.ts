@@ -49,6 +49,10 @@ export interface PlayerProfile {
   lastAddress: string;
   lastTier: number;
   lastGroupName: string;
+  /** Cached rank-coloured display name from CloudNet-Chat / nametag plugins.
+   *  Empty string if we never captured one. Use the `legacy` pipe to render
+   *  the &-codes as styled HTML. */
+  lastDisplayName: string;
 }
 
 export interface PlayerLookup {

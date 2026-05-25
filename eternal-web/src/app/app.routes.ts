@@ -68,6 +68,12 @@ export const routes: Routes = [
         path: 'appeals',
         canActivate: [staffGuard],
         loadComponent: () => import('./pages/appeals/appeals.component').then(m => m.AppealsComponent)
+      },
+      {
+        // Admin-only — also gated server-side by auth.requireAdmin.
+        path: 'active-users',
+        canActivate: [staffGuard],
+        loadComponent: () => import('./pages/active-users/active-users.component').then(m => m.ActiveUsersComponent)
       }
     ]
   },
