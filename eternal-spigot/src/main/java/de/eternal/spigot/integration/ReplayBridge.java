@@ -96,14 +96,13 @@ public final class ReplayBridge {
      *  was closed) we flush it synchronously so the replay becomes loadable
      *  in this same call. Returns false when no recording exists at all —
      *  caller should fall back to a live teleport. */
-    public boolean tryPlayForReport(@NotNull Player mod, long reportId) {
+    public boolean tryPlayForReport(@NotNull Player mod, long reportId, @NotNull java.util.UUID targetUuid) {
         if (!isAvailable()) {
             log.warning("tryPlayForReport(" + reportId + ") — ReplayApi not registered, falling back to live TP");
             return false;
         }
-        // If we're still recording, finish on the spot so play() has a
-        // file to read. This is the common path: mod accepts a fresh
-        // report → capture has been running ~30s → flush → play.
+        // Path 1 — in-flight: capture was opened at report-create and is
+        // still running. Flush synchronously so the file exists right now.
         Long inFlightId = inFlight.remove(reportId);
         if (inFlightId != null) {
             log.info("tryPlayForReport(" + reportId + ") — flushing in-flight replay-id=" + inFlightId);
@@ -111,9 +110,22 @@ public final class ReplayBridge {
         }
         Optional<de.eternal.replay.api.ReplayHandle> maybe =
                 api.findBySource(ReplayKind.REPORT, String.valueOf(reportId));
+
+        // Path 2 — fallback: no in-flight capture (server restarted, race
+        // condition, capture call dropped). Take whatever the recorder has
+        // in its ring buffer NOW and persist that. Same end result: mod
+        // gets dropped into a recording, just without the "follow-up after
+        // report" segment.
         if (maybe.isEmpty()) {
-            log.warning("tryPlayForReport(" + reportId + ") — no persisted replay found "
-                    + "(was capture started? was the server restarted between report+accept?)");
+            log.info("tryPlayForReport(" + reportId + ") — no in-flight, doing captureNow fallback");
+            java.util.Map<String, Object> meta = new java.util.HashMap<>();
+            meta.put("reportId", reportId);
+            meta.put("fallback", true);
+            maybe = api.captureNow(targetUuid, ReplayKind.REPORT, String.valueOf(reportId), meta);
+        }
+
+        if (maybe.isEmpty()) {
+            log.warning("tryPlayForReport(" + reportId + ") — captureNow returned empty (recorder has no active buffers?)");
             return false;
         }
         log.info("tryPlayForReport(" + reportId + ") — playing replay #" + maybe.get().id()

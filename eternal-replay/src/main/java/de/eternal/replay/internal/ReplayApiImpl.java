@@ -146,6 +146,33 @@ public final class ReplayApiImpl implements ReplayApi {
     }
 
     @Override
+    public @NotNull Optional<ReplayHandle> captureNow(@NotNull UUID targetUuid,
+                                                       @NotNull ReplayKind kind,
+                                                       @NotNull String sourceId,
+                                                       @NotNull Map<String, Object> metadata) {
+        // Snapshot every active recorder buffer right now and shove it into
+        // a fresh PendingCapture, then immediately persist. No
+        // captureWindow/endCapture dance needed — caller wanted the last
+        // retention-window's worth of activity, that's exactly what the
+        // buffers hold.
+        Map<UUID, List<Recordable>> snapshot = new HashMap<>();
+        Map<UUID, String> names = new HashMap<>();
+        for (PlayerBuffer buf : recorder.allBuffers()) {
+            snapshot.put(buf.uuid(), buf.snapshot());
+            names.put(buf.uuid(), buf.name());
+        }
+        if (snapshot.isEmpty()) {
+            log.warning("captureNow(" + sourceId + ") — recorder has zero active buffers, nothing to persist");
+            return Optional.empty();
+        }
+        long startedAt = System.currentTimeMillis() - recorder.retentionMs();
+        PendingCapture pc = new PendingCapture(nextReplayId.incrementAndGet(), kind,
+                sourceId, targetUuid, names, snapshot, startedAt);
+        ReplayHandle handle = persistNow(pc.id, pc);
+        return Optional.ofNullable(handle);
+    }
+
+    @Override
     public @NotNull Optional<ReplayHandle> findBySource(@NotNull ReplayKind kind, @NotNull String sourceId) {
         return store.findBySource(kind, sourceId);
     }

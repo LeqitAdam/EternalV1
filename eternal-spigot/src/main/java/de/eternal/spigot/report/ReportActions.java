@@ -174,7 +174,7 @@ public final class ReportActions {
      * service isn't registered or the report has no replay attached.</p>
      */
     private void teleport(@NotNull Player mod, @NotNull ReportEntry report) {
-        if (plugin.replayBridge().tryPlayForReport(mod, report.id())) {
+        if (plugin.replayBridge().tryPlayForReport(mod, report.id(), report.targetUuid())) {
             plugin.messages().send(mod, "report-replay-started", "id", report.id());
             return;
         }

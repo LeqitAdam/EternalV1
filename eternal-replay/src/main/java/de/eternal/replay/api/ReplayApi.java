@@ -66,6 +66,22 @@ public interface ReplayApi {
     /** Looks up a stored replay by its id (post-{@link #endCapture}). */
     @NotNull Optional<ReplayHandle> findReplay(long replayId);
 
+    /**
+     * One-shot capture: snapshots the current ring-buffer for
+     * {@code targetUuid} (plus everyone else online), persists immediately,
+     * and returns the resolved handle. No in-flight tracking. Useful when
+     * the trigger event happened just now and you just want "the last N
+     * seconds" without orchestrating begin/end.
+     *
+     * <p>Used by the report-accept flow as a fallback for the case where
+     * the matching {@code captureWindow} was never called (server
+     * restarted, race condition, plugin late-load).</p>
+     */
+    @NotNull Optional<ReplayHandle> captureNow(@NotNull UUID targetUuid,
+                                                @NotNull ReplayKind kind,
+                                                @NotNull String sourceId,
+                                                @NotNull Map<String, Object> metadata);
+
     /** Newest-first list of persisted replays, capped at {@code limit}.
      *  Powers /replay list and any future replay browser. */
     @NotNull java.util.List<ReplayHandle> listLatest(int limit);
