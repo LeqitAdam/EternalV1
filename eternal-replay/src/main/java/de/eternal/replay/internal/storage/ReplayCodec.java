@@ -117,6 +117,15 @@ public final class ReplayCodec {
             }
             case INVENTORY -> out.writeUTF(((InventorySnapshot) record).base64Data());
             case META -> out.writeUTF(((MetaEvent) record).kind().name());
+            case ITEM_DROP -> {
+                de.eternal.replay.model.ItemDropEvent d = (de.eternal.replay.model.ItemDropEvent) record;
+                out.writeBoolean(d.pickedUp());
+                out.writeUTF(d.material());
+                out.writeInt(d.amount());
+                out.writeDouble(d.x());
+                out.writeDouble(d.y());
+                out.writeDouble(d.z());
+            }
         }
     }
 
@@ -179,6 +188,13 @@ public final class ReplayCodec {
             case ITEM_USE -> new ItemUseEvent(relMs, playerIdx, in.readUTF(), in.readUTF());
             case INVENTORY -> new InventorySnapshot(relMs, playerIdx, in.readUTF());
             case META -> new MetaEvent(relMs, playerIdx, MetaEvent.Kind.valueOf(in.readUTF()));
+            case ITEM_DROP -> {
+                boolean pickedUp = in.readBoolean();
+                String material = in.readUTF();
+                int amount = in.readInt();
+                double x = in.readDouble(), y = in.readDouble(), z = in.readDouble();
+                yield new de.eternal.replay.model.ItemDropEvent(relMs, playerIdx, pickedUp, material, amount, x, y, z);
+            }
         };
         return new DecodedRecord(type, relMs, playerIdx, r);
     }

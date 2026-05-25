@@ -12,7 +12,7 @@ package de.eternal.replay.model;
  * bumping the codec version.</p>
  */
 public sealed interface Recordable
-        permits MovementFrame, HitEvent, ChatEvent, BlockEvent, ItemUseEvent, InventorySnapshot, MetaEvent {
+        permits MovementFrame, HitEvent, ChatEvent, BlockEvent, ItemUseEvent, InventorySnapshot, MetaEvent, ItemDropEvent {
 
     /** Type discriminator written as a single byte in the binary stream. */
     Type type();
@@ -33,7 +33,8 @@ public sealed interface Recordable
         BLOCK_BREAK,  // 4 — block broken
         ITEM_USE,     // 5 — right-click interact, eat, bow draw
         INVENTORY,    // 6 — full inventory snapshot (every 5s)
-        META;         // 7 — control event (player joined/left mid-recording)
+        META,         // 7 — control event (player joined/left mid-recording)
+        ITEM_DROP;    // 8 — item dropped on the ground / picked up
 
         public byte id() { return (byte) ordinal(); }
 

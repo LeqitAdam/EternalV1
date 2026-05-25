@@ -31,10 +31,26 @@
             <artifactId>spigot-api</artifactId>
         </dependency>
         <dependency>
+            <!-- ProtocolLib für Fake-Player-NPCs im Replay-Playback.
+                 Soft-dep (provided): wenn ProtocolLib zur Laufzeit fehlt,
+                 fällt der Playback zurück auf ArmorStand-Ghosts. -->
+            <groupId>com.comphenix.protocol</groupId>
+            <artifactId>ProtocolLib</artifactId>
+            <version>5.3.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
         </dependency>
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>dmulloy2-repo</id>
+            <url>https://repo.dmulloy2.net/repository/public/</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>EternalReplay-${project.version}</finalName>

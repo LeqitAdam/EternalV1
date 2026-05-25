@@ -4,6 +4,9 @@ main: de.eternal.replay.EternalReplay
 api-version: 1.19
 author: Eternal
 description: Standalone replay system. Records player actions and lets staff view recorded scenes via ghost entities and hotbar controls.
+# ProtocolLib ist optional: wenn vorhanden, werden echte Spieler-NPCs
+# mit Skin+Walking-Animation gespawnt. Sonst fallback auf ArmorStand.
+softdepend: [ProtocolLib]
 
 commands:
   replay:

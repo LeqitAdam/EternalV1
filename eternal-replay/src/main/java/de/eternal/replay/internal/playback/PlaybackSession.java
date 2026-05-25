@@ -60,7 +60,7 @@ public final class PlaybackSession {
     private org.bukkit.plugin.Plugin plugin;
 
     /** Spawned armor stands, keyed by playerIdx (matches the file header). */
-    private final Map<Integer, GhostEntity> ghosts = new HashMap<>();
+    private final Map<Integer, GhostAvatar> ghosts = new HashMap<>();
     /** All decoded records in playback order. Loaded once; cheap for ~5 min. */
     private final List<ReplayCodec.DecodedRecord> records = new ArrayList<>();
     /** uuid+name lookup for spawning ghosts at first-sight. */
@@ -156,7 +156,7 @@ public final class PlaybackSession {
             Bukkit.getScheduler().cancelTask(tickTaskId);
             tickTaskId = -1;
         }
-        for (GhostEntity g : ghosts.values()) g.remove();
+        for (GhostAvatar g : ghosts.values()) g.remove();
         ghosts.clear();
         // Restore visibility of all players we'd hidden during playback.
         if (plugin != null) {
@@ -188,7 +188,7 @@ public final class PlaybackSession {
         playheadMs = Math.max(minMs, Math.min(maxMs, playheadMs + deltaMs));
         cursor = 0;
         // Wipe ghosts so the next tick respawns them at the right frame.
-        for (GhostEntity g : ghosts.values()) g.remove();
+        for (GhostAvatar g : ghosts.values()) g.remove();
         ghosts.clear();
         long shown = records.isEmpty() ? 0 : (playheadMs - records.get(0).relativeMs()) / 1000;
         viewer.sendMessage("§dReplay §8» §7Sprung auf §f" + shown + "s§7.");
@@ -239,11 +239,11 @@ public final class PlaybackSession {
         switch (r.type()) {
             case MOVEMENT -> {
                 MovementFrame mf = (MovementFrame) r.payload();
-                GhostEntity g = ghosts.computeIfAbsent(r.playerIdx(), idx -> {
+                GhostAvatar g = ghosts.computeIfAbsent(r.playerIdx(), idx -> {
                     ReplayCodec.PlayerRef ref = players.get(idx);
                     if (ref == null) return null;
                     Location loc = new Location(viewer.getWorld(), mf.x(), mf.y(), mf.z(), mf.yaw(), mf.pitch());
-                    return GhostEntity.spawn(loc, ref.uuid(), ref.name());
+                    return GhostAvatar.spawn(viewer, loc, ref.uuid(), ref.name());
                 });
                 if (g != null) g.teleport(new Location(viewer.getWorld(),
                         mf.x(), mf.y(), mf.z(), mf.yaw(), mf.pitch()));
@@ -270,15 +270,32 @@ public final class PlaybackSession {
             }
             case INVENTORY -> {
                 InventorySnapshot inv = (InventorySnapshot) r.payload();
-                GhostEntity g = ghosts.get(r.playerIdx());
+                GhostAvatar g = ghosts.get(r.playerIdx());
                 if (g != null) {
                     ItemStack[] items = InventoryCodec.decode(inv.base64Data());
-                    if (items.length > 0 && items[0] != null) g.setMainHand(items[0]);
-                    if (items.length > 39 && items[36] != null) g.stand().getEquipment().setHelmet(items[36]);
-                    if (items.length > 38 && items[37] != null) g.stand().getEquipment().setChestplate(items[37]);
-                    if (items.length > 38 && items[38] != null) g.stand().getEquipment().setLeggings(items[38]);
-                    if (items.length > 39 && items[39] != null) g.stand().getEquipment().setBoots(items[39]);
+                    if (items.length > 0  && items[0]  != null) g.setMainHand(items[0]);
+                    if (items.length > 36 && items[36] != null) g.setHelmet(items[36]);
+                    if (items.length > 37 && items[37] != null) g.setChest(items[37]);
+                    if (items.length > 38 && items[38] != null) g.setLeggings(items[38]);
+                    if (items.length > 39 && items[39] != null) g.setBoots(items[39]);
                 }
+            }
+            case ITEM_DROP -> {
+                de.eternal.replay.model.ItemDropEvent ev = (de.eternal.replay.model.ItemDropEvent) r.payload();
+                if (ev.pickedUp()) {
+                    ReplayCodec.PlayerRef ref = players.get(r.playerIdx());
+                    viewer.sendMessage("§7[REPLAY] §e" + (ref == null ? "?" : ref.name())
+                            + " §7nahm §f" + ev.amount() + "x " + ev.material() + " §7auf.");
+                    return;
+                }
+                try {
+                    org.bukkit.Material m = org.bukkit.Material.matchMaterial(ev.material());
+                    if (m == null || m == org.bukkit.Material.AIR) return;
+                    Location loc = new Location(viewer.getWorld(), ev.x(), ev.y(), ev.z());
+                    org.bukkit.entity.Item drop = viewer.getWorld().dropItem(loc, new ItemStack(m, ev.amount()));
+                    drop.setPickupDelay(Integer.MAX_VALUE);
+                    Bukkit.getScheduler().runTaskLater(plugin, drop::remove, 100L);
+                } catch (IllegalArgumentException ignored) { /* bad material */ }
             }
             default -> { /* META + ITEM_USE + HIT — not visualised yet */ }
         }

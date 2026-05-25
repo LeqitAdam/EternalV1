@@ -12,7 +12,9 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -67,6 +69,31 @@ public final class RecorderListener implements Listener {
                 event.getFinalDamage(),
                 damager.getInventory().getItemInMainHand().getType().getKey().toString(),
                 reach));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDropItem(@NotNull PlayerDropItemEvent event) {
+        Player p = event.getPlayer();
+        var buf = recorder.bufferOf(p.getUniqueId(), p.getName());
+        org.bukkit.entity.Item dropped = event.getItemDrop();
+        var stack = dropped.getItemStack();
+        org.bukkit.Location loc = dropped.getLocation();
+        buf.push(new de.eternal.replay.model.ItemDropEvent(
+                buf.currentRelativeMs(), 0, false,
+                stack.getType().getKey().toString(), stack.getAmount(),
+                loc.getX(), loc.getY(), loc.getZ()));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPickup(@NotNull EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player p)) return;
+        var buf = recorder.bufferOf(p.getUniqueId(), p.getName());
+        var stack = event.getItem().getItemStack();
+        org.bukkit.Location loc = event.getItem().getLocation();
+        buf.push(new de.eternal.replay.model.ItemDropEvent(
+                buf.currentRelativeMs(), 0, true,
+                stack.getType().getKey().toString(), stack.getAmount(),
+                loc.getX(), loc.getY(), loc.getZ()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
