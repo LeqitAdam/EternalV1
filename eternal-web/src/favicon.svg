@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Eternal favicon. Single-file SVG so browsers can scale it down to 16×16
+  cleanly without losing the chevron's hairline. Colours mirror the in-game
+  brand:
+    background  #13131a  (ink-800, matches the dashboard surface)
+    accent      #ff21c5  (Eternal-Pink, the &d colour code)
+  Geometry is a rounded square with a stylised "E" + chevron — the same
+  &dE &d» Brand-Marker pairing used everywhere in chat cards.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Hintergrund: dunkler rounded square (matches ink-800 dashboard bg). -->
+  <rect x="0" y="0" width="64" height="64" rx="12" ry="12" fill="#13131a"/>
+
+  <!-- Subtle pink glow rim so the icon "lights up" on a light tab bar. -->
+  <rect x="1" y="1" width="62" height="62" rx="11" ry="11"
+        fill="none" stroke="#ff21c5" stroke-opacity="0.22" stroke-width="1.5"/>
+
+  <!-- "E" — drei horizontale Bars + Stem. Bewusst groß damit es bei
+       16x16 noch als E lesbar bleibt. -->
+  <g fill="#ff21c5">
+    <!-- top bar -->
+    <rect x="14" y="14" width="22" height="6" rx="1.5"/>
+    <!-- middle bar (kürzer, wie bei einem klassischen "E") -->
+    <rect x="14" y="29" width="16" height="6" rx="1.5"/>
+    <!-- bottom bar -->
+    <rect x="14" y="44" width="22" height="6" rx="1.5"/>
+    <!-- left stem connecting the bars -->
+    <rect x="14" y="14" width="6" height="36" rx="1.5"/>
+  </g>
+
+  <!-- Brand-Chevron "»" rechts daneben — der signature &d» Marker.
+       Zwei abgewinkelte Striche statt feiner Linien, damit's bei
+       16x16 nicht in Antialiasing verschwindet. -->
+  <g fill="none" stroke="#ff21c5" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="42,22 50,32 42,42"/>
+    <polyline points="49,22 57,32 49,42"/>
+  </g>
+</svg>
