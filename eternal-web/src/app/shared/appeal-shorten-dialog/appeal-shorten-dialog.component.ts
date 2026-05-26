@@ -19,10 +19,29 @@ export interface AppealShortenResult {
   duration: string;
 }
 
+/** Hard-coded fallback templates so the dropdown is never empty, even
+ *  when the /reasons endpoint hasn't shipped them yet (old API JAR,
+ *  empty reasons.yml, etc.). Module-level so the constructor doesn't
+ *  rebuild the array on every dialog open. */
+const DEFAULT_TEMPLATES: ReadonlyArray<{ id: string; label: string; durationSeconds: number; message: string }> = [
+  { id: 'immediate', label: 'Sofort entbannen',         durationSeconds: 0,        message: '' },
+  { id: '1h',        label: 'Auf 1 Stunde verkürzen',   durationSeconds: 3600,     message: '' },
+  { id: '6h',        label: 'Auf 6 Stunden verkürzen',  durationSeconds: 21600,    message: '' },
+  { id: '1d',        label: 'Auf 1 Tag verkürzen',      durationSeconds: 86400,    message: '' },
+  { id: '3d',        label: 'Auf 3 Tage verkürzen',     durationSeconds: 259200,   message: '' },
+  { id: '7d',        label: 'Auf 1 Woche verkürzen',    durationSeconds: 604800,   message: '' },
+  { id: '14d',       label: 'Auf 2 Wochen verkürzen',   durationSeconds: 1209600,  message: '' },
+  { id: '30d',       label: 'Auf 30 Tage verkürzen',    durationSeconds: 2592000,  message: '' }
+];
+
 /**
- * Verkürzen-Dialog. Plain properties (kein Signal) damit two-way-binding
- * mit ngModel + mat-input einwandfrei funktioniert — Signals + ngModel
- * vertragen sich nicht ohne extra Wiring.
+ * Verkürzen-Dialog. Pattern matches close-report-dialog (the only
+ * other MatSelect dialog that demonstrably works) — Constructor
+ * uses {@code @Inject(MAT_DIALOG_DATA) public data}, no readonly
+ * re-assignment, templates live as their own property. Avoiding the
+ * earlier `public readonly data` + manual reassignment which seemed
+ * to confuse the MatSelect overlay positioner (dropdown highlighted
+ * pink on click but panel never opened).
  */
 @Component({
   selector: 'et-appeal-shorten-dialog',
@@ -31,12 +50,12 @@ export interface AppealShortenResult {
     MatFormFieldModule, MatInputModule, MatSelectModule],
   template: `
     <h2 mat-dialog-title>Antrag verkürzen — {{ data.applicantName }}</h2>
-    <mat-dialog-content class="!pt-2 space-y-4">
+    <mat-dialog-content class="!pt-2 !min-w-[420px] space-y-4">
 
       <mat-form-field appearance="outline" class="w-full">
         <mat-label>Vorlage wählen</mat-label>
         <mat-select [(ngModel)]="selectedTemplateId" (selectionChange)="applyTemplate()">
-          <mat-option *ngFor="let t of data.templates" [value]="t.id">
+          <mat-option *ngFor="let t of templates" [value]="t.id">
             {{ t.label }}
           </mat-option>
         </mat-select>
@@ -62,7 +81,7 @@ export interface AppealShortenResult {
     </mat-dialog-content>
 
     <mat-dialog-actions align="end">
-      <button mat-button (click)="cancel()">Abbrechen</button>
+      <button mat-button (click)="ref.close()">Abbrechen</button>
       <button mat-flat-button color="primary" (click)="confirm()" [disabled]="!isValid()">
         Verkürzen
       </button>
@@ -70,53 +89,35 @@ export interface AppealShortenResult {
   `
 })
 export class AppealShortenDialogComponent {
-  duration = '0s';
-  selectedTemplateId = '';
+  /** Effective template list — API-provided when available, otherwise
+   *  the hardcoded defaults. Bound directly into the *ngFor. */
+  readonly templates: ReadonlyArray<{ id: string; label: string; durationSeconds: number; message: string }>;
 
-  /** Hard-coded Notfall-Templates wenn die API noch nichts liefert
-   *  (reasons.yml leer, API noch nicht restarted, alte API-Version).
-   *  Stellt sicher dass die Vorlagen-Dropdown nie leer ist. */
-  private static readonly DEFAULT_TEMPLATES: ReadonlyArray<{ id: string; label: string; durationSeconds: number; message: string }> = [
-    { id: 'immediate', label: 'Sofort entbannen', durationSeconds: 0, message: '' },
-    { id: '1h',  label: 'Auf 1 Stunde verkürzen',   durationSeconds: 3600,   message: '' },
-    { id: '6h',  label: 'Auf 6 Stunden verkürzen',  durationSeconds: 21600,  message: '' },
-    { id: '1d',  label: 'Auf 1 Tag verkürzen',      durationSeconds: 86400,  message: '' },
-    { id: '3d',  label: 'Auf 3 Tage verkürzen',     durationSeconds: 259200, message: '' },
-    { id: '7d',  label: 'Auf 1 Woche verkürzen',    durationSeconds: 604800, message: '' },
-    { id: '14d', label: 'Auf 2 Wochen verkürzen',   durationSeconds: 1209600,message: '' },
-    { id: '30d', label: 'Auf 30 Tage verkürzen',    durationSeconds: 2592000,message: '' }
-  ];
+  selectedTemplateId = '';
+  duration = '0s';
 
   constructor(
-    @Inject(MAT_DIALOG_DATA) data: AppealShortenDialogData,
-    private readonly ref: MatDialogRef<AppealShortenDialogComponent, AppealShortenResult>
+    public ref: MatDialogRef<AppealShortenDialogComponent, AppealShortenResult>,
+    @Inject(MAT_DIALOG_DATA) public data: AppealShortenDialogData
   ) {
-    // Wenn der Aufrufer keine Templates mitgibt (API-Roundtrip noch nicht
-    // durch / API liefert leer), nehmen wir den hardcoded Default — die
-    // Mod soll IMMER eine Auswahl haben.
-    const templates = (data.templates && data.templates.length > 0)
+    this.templates = (data.templates && data.templates.length > 0)
         ? data.templates
-        : [...AppealShortenDialogComponent.DEFAULT_TEMPLATES];
-    this.data = { ...data, templates };
-    if (this.data.templates.length > 0) {
-      this.selectedTemplateId = this.data.templates[0].id;
-      this.applyTemplate();
+        : DEFAULT_TEMPLATES;
+    if (this.templates.length > 0) {
+      this.selectedTemplateId = this.templates[0].id;
+      this.duration = this.secondsToString(this.templates[0].durationSeconds);
     }
   }
 
-  /** Re-declare data so the constructor can build it from the input +
-   *  fallback. The mat-template still reads data.templates as before. */
-  public readonly data: AppealShortenDialogData;
-
   applyTemplate() {
-    const t = this.data.templates.find(x => x.id === this.selectedTemplateId);
+    const t = this.templates.find(x => x.id === this.selectedTemplateId);
     if (!t) return;
     this.duration = this.secondsToString(t.durationSeconds);
   }
 
-  /** Same DurationParser-Syntax wie Backend — 1d, 6h, 30m, 7d… etc.
-   *  Kombinationen wie "1d 12h" werden NICHT unterstützt (würde im
-   *  Backend zwar parsen, aber Templates erzeugen sie nicht). */
+  /** Same DurationParser-syntax as backend — 1d, 6h, 30m, 7d… etc.
+   *  Combinations like "1d 12h" are NOT supported (the backend
+   *  would parse them, but no template emits one). */
   parsedSeconds(): number {
     const s = this.duration.trim().toLowerCase();
     if (!s) return Number.NaN;
@@ -153,7 +154,6 @@ export class AppealShortenDialogComponent {
     return `${s}s`;
   }
 
-  cancel() { this.ref.close(); }
   confirm() {
     if (!this.isValid()) return;
     this.ref.close({ duration: this.duration.trim() });

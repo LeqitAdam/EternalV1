@@ -6,47 +6,42 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSelectModule } from '@angular/material/select';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 
-interface BanPreset {
+interface MutePreset {
   label: string;
   durationSeconds: number;   // -1 = permanent
   message: string;
 }
 
-const BAN_PRESETS: BanPreset[] = [
-  { label: 'Hacking / Cheating',     durationSeconds: -1,           message: 'Permanenter Bann: Hacking / Cheating' },
-  { label: 'KillAura / Reach',        durationSeconds: -1,           message: 'Permanenter Bann: KillAura / Reach' },
-  { label: 'AntiKnockback',           durationSeconds: -1,           message: 'Permanenter Bann: AntiKnockback' },
-  { label: 'X-Ray / Ore-Cheating',    durationSeconds: -1,           message: 'Permanenter Bann: X-Ray' },
-  { label: 'Griefing',                durationSeconds: 30 * 86400,   message: '30 Tage Bann: Griefing' },
-  { label: 'Stealing / Diebstahl',    durationSeconds: 14 * 86400,   message: '14 Tage Bann: Diebstahl' },
-  { label: 'Trolling / Stalling',     durationSeconds: 7 * 86400,    message: '7 Tage Bann: Trolling' },
-  { label: 'Beleidigung im Chat',     durationSeconds: 7 * 86400,    message: '7 Tage Bann: Beleidigung' },
-  { label: 'Werbung / Advertising',   durationSeconds: 14 * 86400,   message: '14 Tage Bann: Werbung' },
-  { label: 'Bug Abuse / Exploit',     durationSeconds: 14 * 86400,   message: '14 Tage Bann: Bug Abuse' },
-  { label: 'Teaming',                  durationSeconds: 3 * 86400,    message: '3 Tage Bann: Teaming' },
-  { label: 'Unangemessener Skin / Name', durationSeconds: -1,        message: 'Permanenter Bann: unangemessener Skin/Name' },
-  { label: 'Account-Sharing',         durationSeconds: 30 * 86400,   message: '30 Tage Bann: Account-Sharing' },
-  { label: 'Scamming / Betrug',       durationSeconds: 30 * 86400,   message: '30 Tage Bann: Scamming' },
-  { label: 'Bann-Umgehung',           durationSeconds: -1,           message: 'Permanenter Bann: Bann-Umgehung' }
+/** Typical mute durations — chat-violations are usually shorter than
+ *  full bans. The mod can still pick "Sonstiges" for any custom
+ *  duration the presets don't cover. */
+const MUTE_PRESETS: MutePreset[] = [
+  { label: 'Spam / Caps',            durationSeconds: 10 * 60,       message: '10 Minuten Mute: Spam' },
+  { label: 'Beleidigung im Chat',    durationSeconds: 60 * 60,       message: '1 Stunde Mute: Beleidigung' },
+  { label: 'Werbung / Advertising',  durationSeconds: 60 * 60,       message: '1 Stunde Mute: Werbung' },
+  { label: 'Schwere Beleidigung',    durationSeconds: 24 * 3600,     message: '24 Stunden Mute: schwere Beleidigung' },
+  { label: 'Trolling im Chat',       durationSeconds: 3 * 3600,      message: '3 Stunden Mute: Trolling' },
+  { label: 'Wiederholtes Spammen',   durationSeconds: 3 * 86400,     message: '3 Tage Mute: wiederholtes Spammen' },
+  { label: 'Hassrede / Diskriminierung', durationSeconds: 7 * 86400, message: '7 Tage Mute: Hassrede' },
+  { label: 'Sehr schwere Beleidigung', durationSeconds: -1,          message: 'Permanenter Mute: extreme Beleidigung' }
 ];
 
-export interface BanDialogResult {
+export interface MuteDialogResult {
   reasonLabel: string;
   durationSeconds: number;
   message: string;
 }
 
 @Component({
-  selector: 'et-ban-from-report-dialog',
+  selector: 'et-mute-from-report-dialog',
   standalone: true,
   imports: [
     CommonModule, FormsModule, MatDialogModule, MatFormFieldModule,
-    MatInputModule, MatButtonModule, MatSelectModule, MatCheckboxModule
+    MatInputModule, MatButtonModule, MatSelectModule
   ],
   template: `
-    <h2 mat-dialog-title>{{ data.targetName }} bannen (Report #{{ data.reportId }})</h2>
+    <h2 mat-dialog-title>{{ data.targetName }} muten (Report #{{ data.reportId }})</h2>
     <mat-dialog-content class="!min-w-[420px]">
       <div *ngIf="data.reportReason" class="mb-3 text-sm text-ink-300">
         Report-Grund: <span class="text-cyan-300">{{ data.reportReason }}</span>
@@ -55,7 +50,7 @@ export interface BanDialogResult {
       </div>
 
       <mat-form-field appearance="outline" class="w-full">
-        <mat-label>Bann-Grund</mat-label>
+        <mat-label>Mute-Grund</mat-label>
         <mat-select [(ngModel)]="selected" (selectionChange)="onPresetChange()">
           <mat-option *ngFor="let p of presets" [value]="p">{{ p.label }} ({{ formatDuration(p.durationSeconds) }})</mat-option>
           <mat-option [value]="customPreset">Sonstiges (eigene Werte)</mat-option>
@@ -74,41 +69,35 @@ export interface BanDialogResult {
       </ng-container>
 
       <mat-form-field appearance="outline" class="w-full">
-        <mat-label>Kick-Nachricht</mat-label>
+        <mat-label>Nachricht an den Spieler</mat-label>
         <textarea matInput rows="2" [(ngModel)]="message"></textarea>
       </mat-form-field>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button (click)="ref.close()">Abbrechen</button>
-      <button mat-flat-button color="warn" [disabled]="!resolved()" (click)="submit()">
-        Bannen
+      <button mat-flat-button color="accent" [disabled]="!resolved()" (click)="submit()">
+        Muten
       </button>
     </mat-dialog-actions>
   `
 })
-export class BanFromReportDialogComponent {
-  readonly presets = BAN_PRESETS;
-  readonly customPreset: BanPreset = { label: '', durationSeconds: 0, message: '' };
-  /** Did we find a preset matching the report-reason? Drives the
-   *  "Preset wurde vorausgewählt" hint above the form. */
+export class MuteFromReportDialogComponent {
+  readonly presets = MUTE_PRESETS;
+  readonly customPreset: MutePreset = { label: '', durationSeconds: 0, message: '' };
   readonly matchedPreset: boolean;
 
-  selected: BanPreset;
+  selected: MutePreset;
   customLabel = '';
-  customSeconds = 86400;
+  customSeconds = 3600;
   message: string;
 
   constructor(
-    public ref: MatDialogRef<BanFromReportDialogComponent, BanDialogResult>,
+    public ref: MatDialogRef<MuteFromReportDialogComponent, MuteDialogResult>,
     @Inject(MAT_DIALOG_DATA) public data: { reportId: number; targetName: string; reportReason?: string }
   ) {
-    // Try to match the report's reason against a known preset
-    // (case-insensitive label compare). Falls back to the custom-preset
-    // pre-filled with the report's reason so the mod still ends up with
-    // a sensible default they can tweak.
     const wanted = (data.reportReason ?? '').trim().toLowerCase();
     const hit = wanted
-        ? BAN_PRESETS.find(p => p.label.toLowerCase() === wanted)
+        ? MUTE_PRESETS.find(p => p.label.toLowerCase() === wanted)
         : null;
     if (hit) {
       this.selected = hit;
@@ -120,8 +109,8 @@ export class BanFromReportDialogComponent {
       this.message = data.reportReason ?? '';
       this.matchedPreset = false;
     } else {
-      this.selected = BAN_PRESETS[0];
-      this.message = BAN_PRESETS[0].message;
+      this.selected = MUTE_PRESETS[0];
+      this.message = MUTE_PRESETS[0].message;
       this.matchedPreset = false;
     }
   }
@@ -132,7 +121,7 @@ export class BanFromReportDialogComponent {
     }
   }
 
-  resolved(): BanDialogResult | null {
+  resolved(): MuteDialogResult | null {
     if (this.selected === this.customPreset) {
       if (!this.customLabel.trim()) return null;
       return {

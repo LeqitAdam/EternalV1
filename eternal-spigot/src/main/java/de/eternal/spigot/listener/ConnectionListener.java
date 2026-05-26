@@ -38,15 +38,19 @@ public final class ConnectionListener implements Listener {
                 : DurationParser.formatRemaining(
                         Math.max(0, b.expiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
 
-        // appealNote shows up only if a recent shorten/decision attached a
-        // player-facing message to this ban; passes through the
-        // {appealNote} placeholder in the translation.
-        String appealNote = b.lastAppealMessage() == null ? "" : b.lastAppealMessage();
+        // appealBlock is the WHOLE "Hinweis: …" line (incl. leading
+        // newlines and the prefix) — or empty when no note exists. This
+        // way the kick-screen template stays placeholder-only, and the
+        // line disappears cleanly instead of leaving "Hinweis: " dangling.
+        String note = b.lastAppealMessage();
+        String appealBlock = (note == null || note.isBlank())
+                ? ""
+                : "\n\n  &dHinweis&8: &7" + note;
         String screen = plugin.messages().format("ban-kick-screen",
                 "reason", b.reasonLabel(),
                 "duration", duration,
                 "id", b.id(),
-                "appealNote", appealNote);
+                "appealBlock", appealBlock);
         event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED,
                 ChatColor.translateAlternateColorCodes('&', screen));
     }

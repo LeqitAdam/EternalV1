@@ -107,6 +107,17 @@ public interface ReplayApi {
      *  playback. */
     void stopPlayback(@NotNull UUID viewerUuid);
 
+    /** Stops every active playback session whose underlying replay matches
+     *  {@code (kind, sourceId)} and restores each viewer. Returns the
+     *  number of stopped sessions.
+     *
+     *  <p>Used by the web-ban flow: when a mod is currently inside a
+     *  replay of a report and triggers the ban via the dashboard, the
+     *  ban-from-report endpoint queues an END_CAPTURE action which calls
+     *  this — pulling the mod out of the replay so they aren't stuck in
+     *  spectator mode while the ban takes effect.</p> */
+    int stopPlaybackBySource(@NotNull ReplayKind kind, @NotNull String sourceId);
+
     /** Reports whether a viewer is currently in a playback session. */
     boolean isViewing(@NotNull UUID viewerUuid);
 
@@ -118,4 +129,16 @@ public interface ReplayApi {
     /** Deletes EVERY replay attached to {@code (kind, sourceId)} on this
      *  server. Returns the number of removed entries. */
     int deleteReplaysBySource(@NotNull ReplayKind kind, @NotNull String sourceId);
+
+    /** Returns {@code true} when the persisted replay file contains at
+     *  least one record (movement, hit, chat, …) for {@code uuid}. Used
+     *  by the report-accept flow to detect "subject was offline too long
+     *  to be in the recording" — in that case the mod gets a friendly
+     *  error instead of being dropped into an empty spectator session.
+     *
+     *  <p>Streams the gzipped file and short-circuits on the first hit,
+     *  so the I/O cost is bounded by how early the first record for
+     *  {@code uuid} appears (usually within the first hundred bytes for
+     *  an actively-recorded subject).</p> */
+    boolean replayContainsRecordsFor(long replayId, @NotNull UUID uuid);
 }

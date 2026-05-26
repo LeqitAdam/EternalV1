@@ -148,18 +148,69 @@ reasons:
   #   groupid: 50
 
 report-reasons:
+  # Gleiche Liste wie eternal-spigot/reasons.yml — die GUI-spezifischen
+  # Felder (material/slot) werden nur vom Spigot-Plugin gelesen, der
+  # Bungee-Proxy nutzt nur id+label.
   - id: hacking
     label: "Hacking / Cheating"
+    material: IRON_SWORD
+    slot: 0
+  - id: kill-aura
+    label: "KillAura / Reach"
+    material: DIAMOND_SWORD
+    slot: 1
+  - id: anti-knockback
+    label: "AntiKnockback"
+    material: SHIELD
+    slot: 2
+  - id: x-ray
+    label: "X-Ray / Ore-Cheating"
+    material: DIAMOND_ORE
+    slot: 3
+  - id: bug-abuse
+    label: "Bug Abuse / Exploit"
+    material: COMMAND_BLOCK
+    slot: 4
   - id: griefing
     label: "Griefing"
-  - id: chat
-    label: "Chatverhalten"
-  - id: bug-abuse
-    label: "Bug Abuse"
+    material: TNT
+    slot: 5
+  - id: stealing
+    label: "Stealing / Diebstahl"
+    material: ENDER_CHEST
+    slot: 6
+  - id: trolling
+    label: "Trolling / Stalling"
+    material: SLIME_BALL
+    slot: 7
   - id: teaming
-    label: "Teaming"
+    label: "Teaming / unerlaubte Zusammenarbeit"
+    material: LEATHER_CHESTPLATE
+    slot: 8
+  - id: chat-insult
+    label: "Beleidigung im Chat"
+    material: WRITABLE_BOOK
+    slot: 11
+  - id: chat-spam
+    label: "Spam / Caps"
+    material: BELL
+    slot: 13
+  - id: advertising
+    label: "Werbung / Advertising"
+    material: OAK_SIGN
+    slot: 15
+  - id: skin-name
+    label: "Unangemessener Skin / Name"
+    material: PLAYER_HEAD
+    slot: 20
+  - id: account-sharing
+    label: "Account-Sharing"
+    material: ENDER_EYE
+    slot: 22
   - id: other
     label: "Sonstiges"
+    material: BOOK
+    slot: 24
 
 # Vorgefertigte Verkuerzungs-Vorlagen fuer Unban-Antraege.
 # Mod waehlt eine Vorlage; die Dauer kann mit DurationParser-Syntax

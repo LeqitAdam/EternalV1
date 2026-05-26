@@ -93,12 +93,15 @@ public final class ActionPoller {
     /** Triggered by the web close-without-ban flow. Tries to delete the
      *  replay file on THIS server; no-op when the file lives elsewhere
      *  (other servers in the cluster will also pick this action up via
-     *  their own polling). */
+     *  their own polling). Also stops any active playback of this replay
+     *  so a mod still watching it doesn't see ghosts continue once the
+     *  underlying file is gone. */
     private void deleteReplay(@NotNull String payload) {
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
                 long reportId = body.get("reportId").getAsLong();
+                plugin.replayBridge().stopAllPlaybackOfReport(reportId);
                 plugin.replayBridge().deleteReplayForReport(reportId);
             } catch (Exception ex) {
                 plugin.getLogger().warning("DELETE_REPLAY payload invalid: " + ex.getMessage());
@@ -107,13 +110,17 @@ public final class ActionPoller {
     }
 
     /** Spigot-side end-capture for a report — usually fired by the API on
-     *  report-close to flush the in-flight buffer to disk. */
+     *  report-close or web-ban to flush the in-flight buffer to disk.
+     *  Also pulls any moderator who is currently inside the replay back
+     *  to their pre-playback state, so they don't stay in spectator mode
+     *  while the ban kicks in or the report is resolved. */
     private void endCapture(@NotNull String payload) {
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
                 long reportId = body.get("reportId").getAsLong();
                 plugin.replayBridge().endCaptureForReport(reportId);
+                plugin.replayBridge().stopAllPlaybackOfReport(reportId);
             } catch (Exception ex) {
                 plugin.getLogger().warning("END_CAPTURE payload invalid: " + ex.getMessage());
             }
@@ -137,10 +144,24 @@ public final class ActionPoller {
 
                 // Replay-first: if a replay exists (or can be captured on
                 // the fly), drop the mod into that instead of live-TP.
-                // Same code path as the in-game accept flow.
-                if (reportId > 0 && plugin.replayBridge().tryPlayForReport(mod, reportId, targetUuid)) {
-                    plugin.messages().send(mod, "report-replay-started", "id", reportId);
-                    return;
+                // Same code path as the in-game accept flow. Three-state
+                // outcome: PLAYING (we're done), NO_REPLAY (fall back to
+                // live-TP below), EMPTY (no records for the target —
+                // friendly error, no live-TP attempt either since the
+                // player is obviously not around).
+                if (reportId > 0) {
+                    var attempt = plugin.replayBridge().tryPlayForReport(mod, reportId, targetUuid);
+                    switch (attempt) {
+                        case PLAYING -> {
+                            plugin.messages().send(mod, "report-replay-started", "id", reportId);
+                            return;
+                        }
+                        case EMPTY -> {
+                            plugin.messages().send(mod, "report-replay-empty");
+                            return;
+                        }
+                        case NO_REPLAY -> { /* fall through to live-TP path */ }
+                    }
                 }
 
                 Player target = Bukkit.getPlayer(targetUuid);

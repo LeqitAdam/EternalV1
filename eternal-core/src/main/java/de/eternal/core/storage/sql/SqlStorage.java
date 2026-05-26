@@ -647,6 +647,24 @@ public final class SqlStorage implements EternalStorage {
      *         already-pardoned ban brings it back" semantics we want.</li>
      * </ul>
      */
+    /** Sets ONLY the {@code last_appeal_message} on a punishment row,
+     *  without touching duration, active state, or anything else. Used
+     *  by appeal-deny so the player sees the rejection note on their
+     *  next kick screen — but the underlying ban stays exactly as it
+     *  was. Returns true when the row existed and got updated. */
+    public boolean setLastAppealMessage(long id, @NotNull String message) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_punishments SET last_appeal_message = ? WHERE id = ?")) {
+            ps.setString(1, message);
+            ps.setLong(2, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] setLastAppealMessage failed: " + ex.getMessage());
+            return false;
+        }
+    }
+
     public boolean modifyPunishmentDuration(long id, @Nullable UUID modifierUuid, @NotNull String modifierName,
                                              @Nullable Instant newExpires, @Nullable String appealMessage) {
         long now = System.currentTimeMillis();

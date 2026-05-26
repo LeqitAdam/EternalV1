@@ -88,9 +88,7 @@ ban-kick-screen: |-
 
   &dGrund&8: &b{reason}
   &dDauer&8: &7{duration}
-  &dBann-ID&8: &c#{id}
-
-  &dHinweis&8: &7{appealNote}
+  &dBann-ID&8: &c#{id}{appealBlock}
 
   &8Beschwerde: &f/appeal
 
@@ -127,6 +125,7 @@ reportsystem-not-found: "{prefix}&cReport nicht gefunden."
 reportsystem-tp-offline: "{prefix}&cZiel ist offline."
 reportsystem-tp-success: "{prefix}&7Teleportiert zu &e{target}&7."
 report-replay-started: "{prefix}&dReplay &7zum Report &f#{id}&7 gestartet. Smaragd = Play/Pause, Pfeile = Seek, Barriere = Verlassen."
+report-replay-empty: "{prefix}&cDer Spieler war zu lange offline &8— &7Replay nicht verfuegbar."
 reportsystem-sent-to: "{prefix}&7Du wurdest zu &e{server}&7 (Reportziel) verbunden."
 reportsystem-id-required: "{prefix}&cBitte eine Report-ID angeben."
 reportsystem-id-not-number: "{prefix}&cDie ID muss eine Zahl sein."

@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Was ein Replay-Ghost können muss. Zwei Implementierungen:
@@ -20,6 +21,11 @@ import java.util.UUID;
  * </ul>
  */
 public interface GhostAvatar {
+
+    /** One-shot warn flag so we don't spam logs every tick when FakePlayer
+     *  reliably falls back to ArmorStand on every spawn. First failure
+     *  emits a full stacktrace; subsequent ones stay silent. */
+    AtomicBoolean WARNED = new AtomicBoolean(false);
 
     void teleport(@NotNull Location loc);
 
@@ -35,7 +41,8 @@ public interface GhostAvatar {
      * Probiert zuerst die FakePlayer-Implementation; fängt jeden
      * Throwable (ClassNotFoundException, NoClassDefFoundError,
      * ProtocolLib-Reflection-Fail) ab und fällt auf den ArmorStand-
-     * Ghost zurück.
+     * Ghost zurück. Die erste Fehlermeldung pro Server-Lifetime wird
+     * vollständig geloggt, damit man weiß warum gefallen wird.
      */
     static @NotNull GhostAvatar spawn(@NotNull Player viewer, @NotNull Location loc,
                                        @NotNull UUID uuid, @NotNull String name) {
@@ -44,8 +51,12 @@ public interface GhostAvatar {
             fp.spawn(loc);
             return fp;
         } catch (Throwable t) {
-            // ProtocolLib fehlt oder eine Reflection-Inkompatibilität —
-            // ArmorStand-Variante reicht für den Notfall.
+            if (WARNED.compareAndSet(false, true)) {
+                org.bukkit.Bukkit.getLogger().warning("[EternalReplay] FakePlayer spawn failed,"
+                        + " falling back to ArmorStand for ghosts in THIS server-session."
+                        + " Root cause: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                t.printStackTrace();
+            }
             GhostEntity fallback = GhostEntity.spawn(loc, uuid, name);
             return new ArmorStandAvatar(fallback);
         }

@@ -44,10 +44,19 @@ public final class BungeeConnectionListener implements Listener {
                     String dur = b.isPermanent() ? "permanent"
                             : DurationParser.formatRemaining(
                                     Math.max(0, b.expiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
+                    // appealBlock = entire "Hinweis: …" line (incl. blank
+                    // line before it) OR empty string when no note exists.
+                    // Keeps the kick-screen tidy when no shorten/decision
+                    // attached a player-facing note.
+                    String note = b.lastAppealMessage();
+                    String appealBlock = (note == null || note.isBlank())
+                            ? ""
+                            : "\n\n  &dHinweis&8: &7" + note;
                     String screen = plugin.messages().format("ban-kick-screen",
                             "reason", b.reasonLabel(),
                             "duration", dur,
-                            "id", b.id());
+                            "id", b.id(),
+                            "appealBlock", appealBlock);
                     event.setCancelled(true);
                     event.setCancelReason(TextComponent.fromLegacyText(
                             ChatColor.translateAlternateColorCodes('&', screen)));

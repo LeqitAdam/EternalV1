@@ -158,5 +158,20 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+
+        <!-- Top-level activation so every module's compile-step actually
+             USES the pluginManagement settings above. Without this entry
+             the compiler-plugin runs with its built-in defaults, which on
+             Maven 3.9 + Java 21+ JDKs silently emits class-file 65 (Java
+             21) instead of the 61 (Java 17) we need for the prod runtime.
+             pluginManagement alone only supplies versions/config IF the
+             plugin is explicitly listed somewhere — this <plugin> tag is
+             that listing. -->
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+        </plugins>
     </build>
 </project>

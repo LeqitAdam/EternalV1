@@ -77,6 +77,7 @@ public final class Routes {
         app.post("/reports/{id}/close", this::closeReport);
         app.post("/reports/{id}/teleport", this::teleportToReport);
         app.post("/reports/{id}/ban", this::banFromReport);
+        app.post("/reports/{id}/mute", this::muteFromReport);
         app.get("/stats", this::stats);
         app.get("/admin/active-sessions", this::adminActiveSessions);
     }
@@ -375,10 +376,17 @@ public final class Routes {
         // Replay-Lifecycle: bei jedem Unban die Replays loeschen die
         // gegen diesen Bann verlinkt waren. Permanent-Banns bleiben so
         // ihre Replay-Datei behalten, bis sie aufgehoben werden.
-        if (p.uuid() != null) {
-            for (var report : storage.findReportsByBanId(id)) {
-                storage.queueAction("DELETE_REPLAY", p.uuid(),
-                        Json.GSON.toJson(Map.of("reportId", report.id())));
+        //
+        // An targetUuid + p.uuid() queuen — Konsistenz mit den anderen
+        // Pfaden. Der targetUuid (entbannter Spieler) ist meist offline
+        // beim Unban, dann landet die Action bei p.uuid() (Admin) wenn
+        // er ingame ist. Eine der beiden konsumiert sie irgendwann und
+        // löscht den Replay-File von Disk.
+        for (var report : storage.findReportsByBanId(id)) {
+            String payload = Json.GSON.toJson(Map.of("reportId", report.id()));
+            storage.queueAction("DELETE_REPLAY", report.targetUuid(), payload);
+            if (p.uuid() != null && !p.uuid().equals(report.targetUuid())) {
+                storage.queueAction("DELETE_REPLAY", p.uuid(), payload);
             }
         }
         ctx.json(Map.of("ok", true));
@@ -442,6 +450,9 @@ public final class Routes {
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         String resolution = body == null ? "closed via API"
                 : String.valueOf(body.getOrDefault("resolution", "closed via API"));
+        // Report-Objekt vorher holen — wir brauchen targetUuid für das
+        // Action-Routing (siehe Kommentar unten).
+        ReportEntry report = storage.findReport(id).orElseThrow(NotFoundResponse::new);
         // Vor dem Schliessen schauen ob ein Bann mit diesem Report verlinkt
         // ist — wenn nein → Replay loeschen, wenn ja → Replay behalten
         // (faellt erst beim Unban). banFromReport hat vorher
@@ -449,14 +460,20 @@ public final class Routes {
         boolean hasBan = storage.findBanForReport(id).isPresent();
         boolean ok = storage.closeReport(id, resolution);
         if (!ok) throw new NotFoundResponse();
-        if (caller.uuid() != null) {
-            // END_CAPTURE flusht den noch laufenden Recorder fuer den Report
-            storage.queueAction("END_CAPTURE", caller.uuid(),
-                    Json.GSON.toJson(Map.of("reportId", id)));
-            if (!hasBan) {
-                // Kein Bann → Replay ist Beweismaterial-frei und kann weg.
-                storage.queueAction("DELETE_REPLAY", caller.uuid(),
-                        Json.GSON.toJson(Map.of("reportId", id)));
+        // END_CAPTURE/DELETE_REPLAY werden an targetUuid + caller.uuid()
+        // gequeued — siehe Kommentar in banFromReport. In Multi-Server-
+        // Setups ist sonst entweder der Recorder oder die Playback-Session
+        // nicht erreichbar.
+        String payload = Json.GSON.toJson(Map.of("reportId", id));
+        storage.queueAction("END_CAPTURE", report.targetUuid(), payload);
+        if (caller.uuid() != null && !caller.uuid().equals(report.targetUuid())) {
+            storage.queueAction("END_CAPTURE", caller.uuid(), payload);
+        }
+        if (!hasBan) {
+            // Kein Bann → Replay ist Beweismaterial-frei und kann weg.
+            storage.queueAction("DELETE_REPLAY", report.targetUuid(), payload);
+            if (caller.uuid() != null && !caller.uuid().equals(report.targetUuid())) {
+                storage.queueAction("DELETE_REPLAY", caller.uuid(), payload);
             }
         }
         ctx.json(Map.of("ok", true));
@@ -598,8 +615,16 @@ public final class Routes {
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         String reason = body == null ? "Antrag abgelehnt"
                 : String.valueOf(body.getOrDefault("reason", "Antrag abgelehnt"));
+        UnbanAppeal appeal = storage.findAppeal(id).orElseThrow(NotFoundResponse::new);
         boolean ok = storage.decideAppeal(id, p.uuid(), p.name(), UnbanAppeal.Status.DENIED, reason);
         if (!ok) throw new BadRequestResponse("Appeal not pending");
+        // Surface the rejection on the player's next kick-screen so they
+        // know not to keep retrying. Uses setLastAppealMessage (NOT
+        // modifyPunishmentDuration) — duration must stay untouched on a
+        // deny; only the note changes.
+        if (storage instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+            sql.setLastAppealMessage(appeal.banId(), "Antrag abgelehnt: " + reason);
+        }
         ctx.json(Map.of("ok", true));
     }
 
@@ -642,11 +667,22 @@ public final class Routes {
         String auditReason = remainingSec < 0
                 ? "Verkuerzt auf permanent"
                 : "Verkuerzt auf " + remainingSec + "s";
+        // Auto-generated player-facing note for the next kick screen.
+        // The frontend deliberately doesn't ask the mod for a message
+        // (too much friction) — but the player should still see WHY
+        // their kick line changed, so we synthesize one.
+        String playerNote = remainingSec < 0
+                ? "" /* permanent: nothing to inform about */
+                : remainingSec == 0
+                    ? "Antrag akzeptiert — du wurdest entbannt."
+                    : "Antrag akzeptiert — Bann verkuerzt auf "
+                        + de.eternal.core.time.DurationParser.formatRemaining(remainingSec) + ".";
         if (storage instanceof de.eternal.core.storage.sql.SqlStorage sql) {
             sql.decideAppealFull(id, p.uuid(), p.name(),
                     UnbanAppeal.Status.SHORTENED, auditReason, null,
                     remainingSec < 0 ? null : remainingSec);
-            sql.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires, null);
+            sql.modifyPunishmentDuration(appeal.banId(), p.uuid(), p.name(), newExpires,
+                    playerNote.isEmpty() ? null : playerNote);
         } else {
             storage.decideAppeal(id, p.uuid(), p.name(),
                     UnbanAppeal.Status.SHORTENED, auditReason);
@@ -713,6 +749,28 @@ public final class Routes {
         long banId = storage.insertPunishment(draft);
         storage.closeReport(reportId, "Banned (#" + banId + "): " + label + " durch " + p.name());
         storage.linkReportToBan(reportId, banId);
+        // Replay-Lifecycle: bei einem ban-from-report wird der Bann ausgeloest,
+        // daher KEIN DELETE_REPLAY (das passiert erst beim Unban) — wohl aber
+        // END_CAPTURE damit das in-flight Recording sauber auf Disk landet
+        // und im /history-Eintrag verlinkt bleibt.
+        //
+        // END_CAPTURE wird an ZWEI UUIDs gequeued:
+        //   1. report.targetUuid() — der Reportee. Sein Spigot beendet das
+        //      in-flight Recording (endCaptureForReport).
+        //   2. p.uuid() — der Mod selber. Sein Spigot stoppt jede aktive
+        //      Playback-Session (stopAllPlaybackOfReport), so dass er aus
+        //      dem Spectator-Replay rauskommt. In Multi-Server-Setups
+        //      kann der Mod auf einem anderen Spigot online sein als der
+        //      Reportee — beide Actions queuen sorgt dafür, dass beide
+        //      Server-Seiten unabhängig die richtigen Hooks feuern.
+        // Falls Mod und Reportee auf demselben Server sind, ist die zweite
+        // Action ein No-Op (stopPlayback hat schon nichts mehr zu stoppen
+        // weil die erste Action es geschafft hat).
+        String endCapturePayload = Json.GSON.toJson(Map.of("reportId", reportId));
+        storage.queueAction("END_CAPTURE", report.targetUuid(), endCapturePayload);
+        if (p.uuid() != null && !p.uuid().equals(report.targetUuid())) {
+            storage.queueAction("END_CAPTURE", p.uuid(), endCapturePayload);
+        }
         // Queue a KICK against the BANNED player's UUID — ihr Spigot's
         // ActionPoller findet ihn online und kickt ihn sofort. Ohne das
         // bleibt der Spieler eingeloggt bis er von alleine rejoint.
@@ -727,6 +785,58 @@ public final class Routes {
                         "reason", "Banned: " + label,
                         "screen", kickScreen)));
         ctx.json(Map.of("ok", true, "banId", banId, "reportId", reportId));
+    }
+
+    /* --- mute from report ---------------------------------------------- */
+
+    /**
+     * Web counterpart to {@code banFromReport} — issues a MUTE instead of
+     * a BAN. The reportee stays online (no KICK queued — they can keep
+     * playing), but their chat is gagged for {@code durationSeconds}.
+     * Report gets closed + linked to the mute the same way bans link.
+     * Replay is preserved (mutes don't auto-delete recordings).
+     */
+    @SuppressWarnings("unchecked")
+    private void muteFromReport(@NotNull Context ctx) {
+        var p = auth.requireStaff(ctx);
+        if (p.uuid() == null) throw new BadRequestResponse("api-key has no uuid");
+        long reportId = parseLong(ctx, "id");
+        ReportEntry report = storage.findReport(reportId).orElseThrow(NotFoundResponse::new);
+
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        if (body == null) throw new BadRequestResponse("body required");
+        String label = String.valueOf(body.getOrDefault("reasonLabel", "Web-Mute (Report #" + reportId + ")"));
+        long durationSec = body.get("durationSeconds") instanceof Number n ? n.longValue() : -1L;
+        String message = String.valueOf(body.getOrDefault("message", label));
+        String reasonIdStr = String.valueOf(body.getOrDefault("reasonId", "web"));
+
+        Instant now = Instant.now();
+        Instant expires = durationSec < 0 ? null : now.plusSeconds(durationSec);
+        PunishmentEntry draft = new PunishmentEntry(
+                -1L, PunishmentType.MUTE,
+                report.targetUuid(), report.targetName(),
+                p.uuid(), p.name(),
+                reasonIdStr, label, message,
+                now, expires, true,
+                null, null, null, null,
+                null, null, null,
+                null, null
+        );
+        long muteId = storage.insertPunishment(draft);
+        storage.closeReport(reportId, "Muted (#" + muteId + "): " + label + " durch " + p.name());
+        storage.linkReportToBan(reportId, muteId);
+        // Same replay-lifecycle as ban: END_CAPTURE flushes the in-flight
+        // recording so the mute has a replay attached for audit; the file
+        // stays alive until the mute expires + gets unmuted (or admin
+        // manually deletes it). DELETE_REPLAY is NOT queued here.
+        // Queue an targetUuid + p.uuid() für Multi-Server-Setups —
+        // siehe banFromReport-Kommentar.
+        String mutePayload = Json.GSON.toJson(Map.of("reportId", reportId));
+        storage.queueAction("END_CAPTURE", report.targetUuid(), mutePayload);
+        if (!p.uuid().equals(report.targetUuid())) {
+            storage.queueAction("END_CAPTURE", p.uuid(), mutePayload);
+        }
+        ctx.json(Map.of("ok", true, "muteId", muteId, "reportId", reportId));
     }
 
     /* --- plugin polling ------------------------------------------------ */

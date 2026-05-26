@@ -111,6 +111,10 @@ export class ApiService {
     return this.http.post<{ ok: boolean; banId: number; reportId: number }>(
             this.url(`/reports/${id}/ban`), body);
   }
+  muteFromReport(id: number, body: { reasonLabel: string; durationSeconds: number; message: string; reasonId?: string }) {
+    return this.http.post<{ ok: boolean; muteId: number; reportId: number }>(
+            this.url(`/reports/${id}/mute`), body);
+  }
 
   /* --- appeals ------------------------------------------------------- */
 

@@ -64,10 +64,15 @@ public final class PunishmentActions {
         if (reason.type() == PunishmentType.BAN) {
             ProxiedPlayer online = ProxyServer.getInstance().getPlayer(entry.targetUuid());
             if (online != null) {
+                // Fresh ban — never has an appealNote attached, so the
+                // block is always empty here. Still pass it explicitly
+                // so the template's {appealBlock} placeholder gets
+                // replaced instead of staying as literal text.
                 String screen = plugin.messages().format("ban-kick-screen",
                         "reason", reason.label(),
                         "duration", duration,
-                        "id", entry.id());
+                        "id", entry.id(),
+                        "appealBlock", "");
                 online.disconnect(TextComponent.fromLegacyText(screen));
             }
         }

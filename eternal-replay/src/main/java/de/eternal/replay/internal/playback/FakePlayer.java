@@ -61,16 +61,18 @@ public final class FakePlayer implements GhostAvatar {
         spawned = true;
         WrappedGameProfile profile = buildProfile();
 
-        // 1) PLAYER_INFO add — Tablist + Skin-Properties einspielen
+        // 1) PLAYER_INFO add — Tablist + Skin-Properties einspielen.
+        // Die API änderte sich zwischen 1.19.2 (single action) und 1.19.3+
+        // (set of actions). Wir versuchen den modernen Pfad zuerst und
+        // fallen auf den alten zurück, falls die Methode nicht existiert.
         PacketContainer info = ProtocolLibrary.getProtocolManager()
                 .createPacket(PacketType.Play.Server.PLAYER_INFO);
-        info.getPlayerInfoActions().write(0, EnumSet.of(EnumWrappers.PlayerInfoAction.ADD_PLAYER));
-        info.getPlayerInfoDataLists().write(1, java.util.List.of(
-                new PlayerInfoData(
-                        profile,
-                        0,
-                        EnumWrappers.NativeGameMode.SURVIVAL,
-                        WrappedChatComponent.fromText(displayName))));
+        PlayerInfoData data = new PlayerInfoData(
+                profile, 0, EnumWrappers.NativeGameMode.SURVIVAL,
+                WrappedChatComponent.fromText(displayName));
+        if (!tryWritePlayerInfoModern(info, data, /*add=*/ true)) {
+            writePlayerInfoLegacy(info, data, /*add=*/ true);
+        }
         send(info);
 
         // 2) NAMED_ENTITY_SPAWN — eigentliches Entity im 3D-Raum
@@ -157,13 +159,14 @@ public final class FakePlayer implements GhostAvatar {
     private void hideFromTabList() {
         PacketContainer info = ProtocolLibrary.getProtocolManager()
                 .createPacket(PacketType.Play.Server.PLAYER_INFO);
-        info.getPlayerInfoActions().write(0, EnumSet.of(EnumWrappers.PlayerInfoAction.REMOVE_PLAYER));
-        info.getPlayerInfoDataLists().write(1, java.util.List.of(
-                new PlayerInfoData(
-                        buildProfile(),
-                        0,
-                        EnumWrappers.NativeGameMode.SURVIVAL,
-                        WrappedChatComponent.fromText(displayName))));
+        PlayerInfoData data = new PlayerInfoData(
+                buildProfile(),
+                0,
+                EnumWrappers.NativeGameMode.SURVIVAL,
+                WrappedChatComponent.fromText(displayName));
+        if (!tryWritePlayerInfoModern(info, data, /*add=*/ false)) {
+            writePlayerInfoLegacy(info, data, /*add=*/ false);
+        }
         send(info);
     }
 
@@ -206,5 +209,48 @@ public final class FakePlayer implements GhostAvatar {
             // logger works fine.
             Bukkit.getLogger().warning("FakePlayer packet send failed: " + ex.getMessage());
         }
+    }
+
+    /**
+     * 1.19.3+ Pfad: PLAYER_INFO_UPDATE-Packet hat eine {@code EnumSet<Action>}
+     * + Liste von Einträgen. ProtocolLib exponiert das über
+     * {@code getPlayerInfoActions()} (Plural) — wenn der unterliegende Packet-
+     * Struct das nicht hat (z.B. 1.19.2), wirft das {@link Throwable},
+     * den wir abfangen und mit {@code false} signalisieren.
+     */
+    private boolean tryWritePlayerInfoModern(@NotNull PacketContainer info,
+                                             @NotNull PlayerInfoData data,
+                                             boolean add) {
+        try {
+            EnumSet<EnumWrappers.PlayerInfoAction> actions = add
+                    ? EnumSet.of(EnumWrappers.PlayerInfoAction.ADD_PLAYER)
+                    : EnumSet.of(EnumWrappers.PlayerInfoAction.REMOVE_PLAYER);
+            info.getPlayerInfoActions().write(0, actions);
+            // Die Daten-Liste sitzt auf 1.19.3+ auf Index 1 (Index 0 ist die
+            // UUID-Liste für Remove). Falls das doch auf 0 liegt — z.B. ältere
+            // ProtocolLib-Builds — fallen wir intern darauf zurück.
+            try {
+                info.getPlayerInfoDataLists().write(1, java.util.List.of(data));
+            } catch (Throwable inner) {
+                info.getPlayerInfoDataLists().write(0, java.util.List.of(data));
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 1.19.2 Pfad: PLAYER_INFO-Packet hat ein einzelnes {@code Action}-Enum
+     * (Singular) + Liste von Einträgen auf Index 0. Auf 1.19.2 + Spigot 1.19
+     * ist das der primäre Weg.
+     */
+    private void writePlayerInfoLegacy(@NotNull PacketContainer info,
+                                       @NotNull PlayerInfoData data,
+                                       boolean add) {
+        info.getPlayerInfoAction().write(0,
+                add ? EnumWrappers.PlayerInfoAction.ADD_PLAYER
+                    : EnumWrappers.PlayerInfoAction.REMOVE_PLAYER);
+        info.getPlayerInfoDataLists().write(0, java.util.List.of(data));
     }
 }

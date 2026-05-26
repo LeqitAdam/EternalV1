@@ -60,24 +60,60 @@ public final class ReportReasonGui {
             plugin.messages().send(reporter, "unknown-reason", "id", "none-configured");
             return;
         }
+        // Inventar-Größe entweder vom höchsten explizit gesetzten slot oder
+        // vom reasons.size() bestimmen. Round up to multiple of 9, cap 54.
+        int maxExplicitSlot = -1;
+        int autoCount = 0;
+        for (ReasonsConfig.ReportReason r : reasons) {
+            if (r.slot() >= 0) maxExplicitSlot = Math.max(maxExplicitSlot, r.slot());
+            else autoCount++;
+        }
+        int needed = Math.max(maxExplicitSlot + 1, autoCount);
+        int size = Math.min(54, Math.max(9, ((needed + 8) / 9) * 9));
+
         Holder holder = new Holder();
-        int size = Math.min(54, Math.max(9, ((reasons.size() + 8) / 9) * 9));
         String title = ChatColor.translateAlternateColorCodes('&',
                 plugin.messages().format("gui-report-reasons-title", "target", targetName));
         Inventory inv = Bukkit.createInventory(holder, size, title);
         holder.setInventory(inv);
 
-        int i = 0;
+        // First pass: place explicitly slotted reasons. Second pass: auto-
+        // fill the remaining ones into the first free indices. Keeps the
+        // config-defined grid layout stable when most reasons have slot
+        // and a couple don't.
+        boolean[] taken = new boolean[size];
         for (ReasonsConfig.ReportReason r : reasons) {
-            if (i >= size) break;
-            inv.setItem(i++, itemFor(r, targetUuid, targetName));
+            if (r.slot() < 0 || r.slot() >= size) continue;
+            inv.setItem(r.slot(), itemFor(r, targetUuid, targetName));
+            taken[r.slot()] = true;
+        }
+        int next = 0;
+        for (ReasonsConfig.ReportReason r : reasons) {
+            if (r.slot() >= 0 && r.slot() < size) continue;
+            while (next < size && taken[next]) next++;
+            if (next >= size) {
+                plugin.getLogger().warning("Report-GUI overflow: " + r.id() + " hat keinen freien Slot");
+                break;
+            }
+            inv.setItem(next, itemFor(r, targetUuid, targetName));
+            taken[next++] = true;
         }
         reporter.openInventory(inv);
     }
 
     private @NotNull ItemStack itemFor(@NotNull ReasonsConfig.ReportReason r,
                                        @NotNull UUID targetUuid, @NotNull String targetName) {
-        ItemStack item = new ItemStack(Material.PAPER);
+        // Resolve config'd material name; tolerate typos by falling back
+        // to PAPER + console warning so the GUI doesn't blow up on one
+        // bad row in reasons.yml.
+        Material mat;
+        try { mat = Material.valueOf(r.material()); }
+        catch (IllegalArgumentException ex) {
+            plugin.getLogger().warning("Report-reason '" + r.id() + "' hat unbekanntes Material '"
+                    + r.material() + "' — falling back to PAPER");
+            mat = Material.PAPER;
+        }
+        ItemStack item = new ItemStack(mat);
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return item;
         meta.setDisplayName(ChatColor.translateAlternateColorCodes('&',

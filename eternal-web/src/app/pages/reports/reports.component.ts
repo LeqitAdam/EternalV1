@@ -11,6 +11,7 @@ import { ApiService } from '../../core/api.service';
 import { Report, ReportStatusFilter } from '../../core/models';
 import { CloseReportDialogComponent } from './close-report-dialog.component';
 import { BanFromReportDialogComponent, BanDialogResult } from './ban-from-report-dialog.component';
+import { MuteFromReportDialogComponent, MuteDialogResult } from './mute-from-report-dialog.component';
 
 @Component({
   selector: 'et-reports',
@@ -84,6 +85,9 @@ import { BanFromReportDialogComponent, BanDialogResult } from './ban-from-report
           </button>
           <button mat-stroked-button color="warn" (click)="ban(r)">
             <mat-icon>gavel</mat-icon> Bannen
+          </button>
+          <button mat-stroked-button color="accent" (click)="mute(r)">
+            <mat-icon>volume_off</mat-icon> Muten
           </button>
           <button mat-stroked-button (click)="close(r)">
             <mat-icon>close</mat-icon> Schließen
@@ -165,13 +169,30 @@ export class ReportsComponent {
   }
 
   ban(r: Report) {
-    this.dialog.open<BanFromReportDialogComponent, { reportId: number; targetName: string }, BanDialogResult>(
-      BanFromReportDialogComponent, { data: { reportId: r.id, targetName: r.targetName } }
+    this.dialog.open<BanFromReportDialogComponent, { reportId: number; targetName: string; reportReason?: string }, BanDialogResult>(
+      BanFromReportDialogComponent,
+      { data: { reportId: r.id, targetName: r.targetName, reportReason: r.reasonLabel } }
     ).afterClosed().subscribe(result => {
       if (!result) return;
       this.api.banFromReport(r.id, result).subscribe({
         next: res => {
           this.snack.open(`${r.targetName} gebannt (#${res.banId}), Report #${r.id} geschlossen.`, 'OK', { duration: 3500 });
+          this.refresh();
+        },
+        error: e => this.snack.open(`Fehler: ${e.error?.error ?? e.message}`, 'OK', { duration: 4000 })
+      });
+    });
+  }
+
+  mute(r: Report) {
+    this.dialog.open<MuteFromReportDialogComponent, { reportId: number; targetName: string; reportReason?: string }, MuteDialogResult>(
+      MuteFromReportDialogComponent,
+      { data: { reportId: r.id, targetName: r.targetName, reportReason: r.reasonLabel } }
+    ).afterClosed().subscribe(result => {
+      if (!result) return;
+      this.api.muteFromReport(r.id, result).subscribe({
+        next: res => {
+          this.snack.open(`${r.targetName} gemutet (#${res.muteId}), Report #${r.id} geschlossen.`, 'OK', { duration: 3500 });
           this.refresh();
         },
         error: e => this.snack.open(`Fehler: ${e.error?.error ?? e.message}`, 'OK', { duration: 4000 })

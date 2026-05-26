@@ -197,6 +197,31 @@ public final class ReplayApiImpl implements ReplayApi {
     }
 
     @Override
+    public int stopPlaybackBySource(@NotNull de.eternal.replay.api.ReplayKind kind,
+                                    @NotNull String sourceId) {
+        int stopped = 0;
+        // Snapshot the entry-set; we mutate the map inside the loop.
+        for (var entry : new java.util.ArrayList<>(playbacks.entrySet())) {
+            var session = entry.getValue();
+            var handle = session.replay();
+            if (handle == null) continue;
+            if (handle.kind() != kind) continue;
+            if (!sourceId.equals(handle.sourceId())) continue;
+            // remove() returns null when another thread already stopped this
+            // viewer (rare), so guard against double-stop.
+            if (playbacks.remove(entry.getKey()) != null) {
+                session.stop();
+                stopped++;
+            }
+        }
+        if (stopped > 0) {
+            log.info("stopPlaybackBySource(" + kind + ", " + sourceId + ") — stopped "
+                    + stopped + " session(s)");
+        }
+        return stopped;
+    }
+
+    @Override
     public boolean isViewing(@NotNull UUID viewerUuid) {
         return playbacks.containsKey(viewerUuid);
     }
@@ -209,6 +234,38 @@ public final class ReplayApiImpl implements ReplayApi {
     @Override
     public int deleteReplaysBySource(@NotNull de.eternal.replay.api.ReplayKind kind, @NotNull String sourceId) {
         return store.deleteBySource(kind, sourceId);
+    }
+
+    @Override
+    public boolean replayContainsRecordsFor(long replayId, @NotNull UUID uuid) {
+        Optional<ReplayHandle> maybe = findReplay(replayId);
+        if (maybe.isEmpty()) return false;
+        ReplayHandle handle = maybe.get();
+        try (java.io.DataInputStream in = store.openForRead(handle)) {
+            var header = de.eternal.replay.internal.storage.ReplayCodec.readHeader(in);
+            // Find the index inside the header's player table. If the
+            // target isn't even mentioned in the header, no records
+            // can exist for them.
+            int targetIdx = -1;
+            for (int i = 0; i < header.players().size(); i++) {
+                if (header.players().get(i).uuid().equals(uuid)) {
+                    targetIdx = i;
+                    break;
+                }
+            }
+            if (targetIdx < 0) return false;
+            // Stream records and return true on the first one that
+            // belongs to the target — short-circuits cheaply when the
+            // subject was actually present.
+            while (true) {
+                var rec = de.eternal.replay.internal.storage.ReplayCodec.readRecord(in);
+                if (rec == null) return false; // EOF
+                if (rec.playerIdx() == targetIdx) return true;
+            }
+        } catch (IOException ex) {
+            log.warning("replayContainsRecordsFor(" + replayId + ", " + uuid + ") failed: " + ex.getMessage());
+            return false;
+        }
     }
 
     public PlaybackSession sessionOf(@NotNull Player viewer) {

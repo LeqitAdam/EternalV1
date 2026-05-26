@@ -10,11 +10,15 @@ softdepend: [ProtocolLib]
 
 commands:
   replay:
-    description: Diagnose- und Steuerung-Command fuer Replays.
-    usage: /replay <status|list|play <id>|exit>
-    permission: eternal.replay.debug
+    description: Diagnose und Steuerung fuer Replays.
+    usage: /replay <status|list|reports|play <id>|exit>
+    # Kein top-level permission — die Subcommands gaten sich selber:
+    # status = eternal.replay.debug, list/reports/play/exit = eternal.replay.rewatch.
 
 permissions:
   eternal.replay.debug:
-    description: Erlaubt /replay-Subcommands (status, list, play, exit).
+    description: Recorder-Diagnose (/replay status).
+    default: op
+  eternal.replay.rewatch:
+    description: Erlaubt das Ansehen gespeicherter Replays (/replay list, /replay reports, /replay play, /replay exit).
     default: op

@@ -88,7 +88,16 @@ public final class ReasonsConfig {
         for (Map<String, Object> r : Configs.sectionListOr(raw, "report-reasons")) {
             reports.add(new ReportReason(
                     Configs.stringOr(r, "id", "unknown"),
-                    Configs.stringOr(r, "label", "Unbekannt")
+                    Configs.stringOr(r, "label", "Unbekannt"),
+                    // material: Bukkit Material name. Lazy-validated at GUI
+                    // build time (Material.valueOf) — invalid names fall back
+                    // to PAPER with a console warning so a typo in reasons.yml
+                    // doesn't bring down the whole report flow.
+                    Configs.stringOr(r, "material", "PAPER"),
+                    // slot: -1 = auto-place (insertion order). When set
+                    // explicitly the GUI places this reason at that slot;
+                    // grid size grows to fit the largest slot.
+                    Configs.intOr(r, "slot", -1)
             ));
         }
 
@@ -105,7 +114,12 @@ public final class ReasonsConfig {
         return new ReasonsConfig(reasons, reports, shortenTemplates);
     }
 
-    public record ReportReason(@NotNull String id, @NotNull String label) {
+    /** A reason a player can pick from the {@code /report <player>} GUI.
+     *  {@code material} is the Bukkit Material name (e.g. {@code IRON_SWORD})
+     *  used as the slot icon; {@code slot} is the explicit inventory index
+     *  ({@code -1} = auto-place in insertion order). */
+    public record ReportReason(@NotNull String id, @NotNull String label,
+                                @NotNull String material, int slot) {
     }
 
     /**

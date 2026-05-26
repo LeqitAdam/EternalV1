@@ -103,15 +103,46 @@ public final class ReplayBridge {
         endCapture(replayId);
     }
 
+    /** Stops every active playback session whose source is this report —
+     *  used by the web-ban flow so the moderator who's currently inside
+     *  the replay is pulled back out (otherwise they're stuck in
+     *  spectator mode while the ban actually takes effect server-side). */
+    public void stopAllPlaybackOfReport(long reportId) {
+        if (!isAvailable()) return;
+        int stopped = api.stopPlaybackBySource(ReplayKind.REPORT, String.valueOf(reportId));
+        if (stopped > 0) {
+            log.info("Stopped " + stopped + " in-progress replay playback(s) for report #" + reportId);
+        }
+    }
+
+    /** Three-state outcome of {@link #tryPlayForReport}. The caller
+     *  (typically {@code ActionPoller.teleport}) maps each value to a
+     *  different user-visible behaviour. */
+    public enum PlayAttempt {
+        /** Replay opened — mod is now in spectator mode. Caller does
+         *  nothing further. */
+        PLAYING,
+        /** No replay file exists and no in-flight capture either. The
+         *  caller should fall back to a live teleport. */
+        NO_REPLAY,
+        /** A replay file does exist, but it contains no records for the
+         *  target player — they were offline (or out of capture-range)
+         *  for the entire recording window. Live-TP would fail too
+         *  (player offline), so the caller should surface a friendly
+         *  "subject was offline too long, no replay available" message
+         *  instead of attempting either action. */
+        EMPTY
+    }
+
     /** Try to teleport the mod into the recorded replay for {@code reportId}.
      *  If the capture is still in-flight (mod accepted before the report
      *  was closed) we flush it synchronously so the replay becomes loadable
-     *  in this same call. Returns false when no recording exists at all —
-     *  caller should fall back to a live teleport. */
-    public boolean tryPlayForReport(@NotNull Player mod, long reportId, @NotNull java.util.UUID targetUuid) {
+     *  in this same call. See {@link PlayAttempt} for the three possible
+     *  outcomes. */
+    public @NotNull PlayAttempt tryPlayForReport(@NotNull Player mod, long reportId, @NotNull java.util.UUID targetUuid) {
         if (!isAvailable()) {
             log.warning("tryPlayForReport(" + reportId + ") — ReplayApi not registered, falling back to live TP");
-            return false;
+            return PlayAttempt.NO_REPLAY;
         }
         // Path 1 — in-flight: capture was opened at report-create and is
         // still running. Flush synchronously so the file exists right now.
@@ -138,11 +169,24 @@ public final class ReplayBridge {
 
         if (maybe.isEmpty()) {
             log.warning("tryPlayForReport(" + reportId + ") — captureNow returned empty (recorder has no active buffers?)");
-            return false;
+            return PlayAttempt.NO_REPLAY;
         }
-        log.info("tryPlayForReport(" + reportId + ") — playing replay #" + maybe.get().id()
+        // Sanity check: does the persisted replay actually contain records
+        // for the reported player? The recorder only buffers online
+        // players, and a player who's been offline > retention window
+        // won't be in there — playing an empty replay would dump the mod
+        // into a featureless spectator session.
+        long replayId = maybe.get().id();
+        if (!api.replayContainsRecordsFor(replayId, targetUuid)) {
+            log.warning("tryPlayForReport(" + reportId + ") — replay #" + replayId
+                    + " has no records for target " + targetUuid + " (offline too long?), refusing to play");
+            // Clean up: delete the empty replay so it doesn't pile up.
+            api.deleteReplay(replayId);
+            return PlayAttempt.EMPTY;
+        }
+        log.info("tryPlayForReport(" + reportId + ") — playing replay #" + replayId
                 + " (" + maybe.get().fileSizeBytes() + " bytes)");
-        api.play(mod, maybe.get().id());
-        return true;
+        api.play(mod, replayId);
+        return PlayAttempt.PLAYING;
     }
 }
