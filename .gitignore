@@ -34,7 +34,6 @@ api-keys.txt
 # Replay-store contents (per-server data, never source-controlled).
 replays/
 
-
 # OS noise
 .DS_Store
 Thumbs.db

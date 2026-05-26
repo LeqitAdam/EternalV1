@@ -120,7 +120,8 @@ public final class HistoryCommand extends Command {
                          @NotNull Map<UUID, String> groupByUuid,
                          @NotNull Map<Long, String> banLabelById) {
         plugin.messages().send(sender, "history-separator");
-        // Type-coloured Id line.
+        // Type-coloured Id line — BAN=&c, MUTE=&6, REPORT=&b — so the
+        // first thing the eye lands on tells you what kind of row it is.
         String idKey = row.isReport ? "history-card-line-id-report"
                 : (row.type == PunishmentType.BAN
                     ? "history-card-line-id-ban"

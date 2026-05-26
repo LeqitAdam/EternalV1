@@ -930,7 +930,8 @@ public final class SqlStorage implements EternalStorage {
         // Replay-Id ist nullable + by migration kann die Spalte auf
         // älteren DBs noch fehlen — also try/catch um getLong(...) und
         // immer wasNull() prüfen. Reihenfolge folgt dem Pattern aus
-        // tolerate missing columns in row readers — schema migrations stay idempotent.
+        // tolerate the column being absent on databases that haven't
+        // run the migration yet — schema upgrades are idempotent.
         Long replayId = null;
         try {
             long rid = rs.getLong("replay_id");
