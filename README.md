@@ -4,7 +4,7 @@
 [![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk)](https://adoptium.net/)
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.19-green?logo=minecraft)](https://www.minecraft.net/)
 [![Angular](https://img.shields.io/badge/Angular-17-red?logo=angular)](https://angular.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: All Rights Reserved](https://img.shields.io/badge/License-All%20Rights%20Reserved-lightgrey.svg)](LICENSE)
 
 A network-wide moderation suite for Minecraft — bans, mutes, reports, unban
 appeals, and a video-style **replay system** so staff review the actual
@@ -12,9 +12,11 @@ scene instead of teleporting after the fact. Built for a BungeeCord +
 Spigot 1.19 network running on CloudNet V3, with an Angular dashboard for
 remote moderation.
 
-> ⚠️ Status: feature-complete prototype on a single test network. Not a
-> public download yet — the repo is here as a portfolio piece, showing
-> how the pieces fit together end-to-end.
+> 📂 **This repository is a portfolio piece.** The source is published
+> so it can be read and evaluated; **all rights are reserved** and
+> there is no license to use, run, copy, modify, or redistribute the
+> code (see [LICENSE](LICENSE)). If you'd like to use any of it,
+> contact me first.
 
 ---
 
@@ -185,4 +187,11 @@ lookup/history are flat.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+**All rights reserved.** See [LICENSE](LICENSE) for the full text.
+
+This repository is published for portfolio and evaluation purposes
+only. You may read the source to assess my work. You may **not** use,
+run, host, copy, modify, redistribute, or incorporate any of this code
+— commercial, non-commercial, personal, or otherwise — without prior
+written permission from me. Open an issue or reach out via my GitHub
+profile if you want to discuss other terms.

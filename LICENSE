@@ -1,21 +1,80 @@
-MIT License
+All Rights Reserved
 
 Copyright (c) 2026 Adam (LeqitAdam)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This source code is published in this repository for portfolio and
+evaluation purposes only. No license, express or implied, is granted
+under any patent, copyright, trademark, or other intellectual property
+right held by the copyright holder, except for the very limited rights
+explicitly described in the "Permitted Use" section below.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+
+Permitted Use
+-------------
+
+You MAY:
+
+  - View this repository's source files in a web browser, IDE, or
+    similar reader for the purpose of evaluating the author's work
+    (e.g. as part of a hiring decision).
+
+  - Clone the repository to your local machine for the same evaluation
+    purpose, provided the clone is not redistributed and is not used
+    to build, deploy, or operate the software.
+
+
+Prohibited Use
+--------------
+
+You MAY NOT, without prior written permission from the copyright
+holder:
+
+  - Use, run, deploy, host, or operate this software or any derivative
+    of it, in whole or in part, for any purpose — commercial,
+    non-commercial, personal, educational, or otherwise.
+
+  - Copy, modify, translate, adapt, merge, sublicense, or create
+    derivative works based on this software or any portion of it.
+
+  - Distribute, publish, sell, lease, sublicense, or otherwise transfer
+    this software or any derivative of it, by any means and in any
+    medium, whether for free or for a fee.
+
+  - Incorporate this software or any portion of it into another
+    project, product, library, service, or system.
+
+  - Use this software or any derivative as a service provided to third
+    parties, including but not limited to software-as-a-service,
+    hosted offerings, network-accessible interfaces, or managed
+    deployments.
+
+  - Use this software, in any form, by or for the benefit of any
+    company, corporation, partnership, or other for-profit or
+    non-profit organization.
+
+  - Remove or alter this notice, including the copyright statement and
+    the "Permitted Use" / "Prohibited Use" sections, in any copy.
+
+
+No Warranty
+-----------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT,
+OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+Requests for Other Use
+----------------------
+
+If you would like to use this software in any way not described in the
+"Permitted Use" section, you must contact the copyright holder in
+writing and obtain explicit, signed permission. Open an issue on the
+repository or contact the author via the channels listed on their
+GitHub profile. Permission is granted at the sole discretion of the
+copyright holder.
