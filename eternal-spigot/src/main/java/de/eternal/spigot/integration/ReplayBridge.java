@@ -171,16 +171,24 @@ public final class ReplayBridge {
             log.warning("tryPlayForReport(" + reportId + ") — captureNow returned empty (recorder has no active buffers?)");
             return PlayAttempt.NO_REPLAY;
         }
-        // Sanity check: does the persisted replay actually contain records
-        // for the reported player? The recorder only buffers online
-        // players, and a player who's been offline > retention window
-        // won't be in there — playing an empty replay would dump the mod
-        // into a featureless spectator session.
+        // Sanity check: does the persisted replay actually have ANY
+        // records? The recorder only buffers online players, and if
+        // everyone was offline when the snapshot ran, the file is just
+        // a header with no content — playing it would dump the mod into
+        // a frozen, featureless spectator session.
+        //
+        // ACHTUNG: we deliberately do NOT require records FOR the target
+        // specifically. In a multi-server setup the captureNow fallback
+        // runs on the MOD's spigot — if the target is online on a
+        // different backend, their records won't be in this snapshot,
+        // but other locally-online players might be. Showing those
+        // ghosts (without the target) is still more useful than nothing,
+        // and "no records at all" is the only state where blocking
+        // playback is the right call.
         long replayId = maybe.get().id();
-        if (!api.replayContainsRecordsFor(replayId, targetUuid)) {
+        if (!api.replayHasAnyRecords(replayId)) {
             log.warning("tryPlayForReport(" + reportId + ") — replay #" + replayId
-                    + " has no records for target " + targetUuid + " (offline too long?), refusing to play");
-            // Clean up: delete the empty replay so it doesn't pile up.
+                    + " has zero records (recorder was idle?), refusing to play");
             api.deleteReplay(replayId);
             return PlayAttempt.EMPTY;
         }

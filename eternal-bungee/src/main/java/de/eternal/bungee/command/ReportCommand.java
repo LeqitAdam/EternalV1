@@ -1,5 +1,7 @@
 package de.eternal.bungee.command;
 
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 import de.eternal.bungee.EternalBungee;
 import de.eternal.core.config.ReasonsConfig;
 import de.eternal.core.model.ReportEntry;
@@ -16,6 +18,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class ReportCommand extends Command {
 
+    /** Matches the channel name registered in
+     *  {@code ReportGuiRequestListener.CHANNEL} on the Spigot side. */
+    private static final String GUI_CHANNEL = "eternal:open-report-gui";
+    /** Matches {@code CaptureReplayRequestListener.CHANNEL}. */
+    private static final String CAPTURE_CHANNEL = "eternal:start-replay-capture";
+
     private final EternalBungee plugin;
     private final TargetResolver resolver;
     private final ConcurrentHashMap<UUID, Long> lastReport = new ConcurrentHashMap<>();
@@ -24,6 +32,10 @@ public final class ReportCommand extends Command {
         super("report", "eternal.report");
         this.plugin = plugin;
         this.resolver = new TargetResolver(plugin.storage());
+        // Register both outgoing channels so Bungee allows sendData on
+        // them. Without this, sendData() throws ChannelNotRegisteredException.
+        ProxyServer.getInstance().registerChannel(GUI_CHANNEL);
+        ProxyServer.getInstance().registerChannel(CAPTURE_CHANNEL);
     }
 
     @Override
@@ -59,7 +71,12 @@ public final class ReportCommand extends Command {
             }
             var target = maybe.get();
             if (args.length < 2) {
-                sendReasonList(reporter, target.name());
+                // No reason argument — delegate to the Spigot GUI. Bungee
+                // can't open inventories, so we send a plugin-message to
+                // the reporter's current backend and let the Spigot-side
+                // ReportGuiRequestListener handle the actual openInventory
+                // call. The legacy chat-based reason list is gone.
+                openGuiOnBackend(reporter, target.uuid(), target.name());
                 return;
             }
             ReasonsConfig.ReportReason reason = pickReason(args[1]);
@@ -82,9 +99,31 @@ public final class ReportCommand extends Command {
                     serverName);
             lastReport.put(reporter.getUniqueId(), System.currentTimeMillis());
 
+            // Start the in-flight replay capture on whichever backend
+            // the reportee is currently on. WITHOUT this, no recording
+            // is started for this report — and when the mod later
+            // accepts via the web, tryPlayForReport falls back to
+            // captureNow on the MOD's backend, which can be empty if
+            // the target is on a different server. Triggers must run
+            // on the target's backend, so we route via plugin-message.
+            startReplayCaptureOnTargetBackend(onlineTarget, target.uuid(), created.id());
+
             plugin.messages().send(sender, "report-success", "id", created.id());
             notifyStaff(created);
         });
+    }
+
+    /** Fires a plugin-message at the target's current backend asking it
+     *  to start the in-flight replay capture for {@code reportId}. No-op
+     *  when the target isn't online — there's nothing to record. */
+    private void startReplayCaptureOnTargetBackend(@org.jetbrains.annotations.Nullable ProxiedPlayer target,
+                                                    @NotNull UUID targetUuid, long reportId) {
+        if (target == null || target.getServer() == null) return;
+        ByteArrayDataOutput out = ByteStreams.newDataOutput();
+        out.writeUTF("start-capture");
+        out.writeUTF(targetUuid.toString());
+        out.writeLong(reportId);
+        target.getServer().sendData(CAPTURE_CHANNEL, out.toByteArray());
     }
 
     private ReasonsConfig.ReportReason pickReason(@NotNull String arg) {
@@ -98,16 +137,30 @@ public final class ReportCommand extends Command {
         return null;
     }
 
-    private void sendReasonList(@NotNull ProxiedPlayer to, @NotNull String targetName) {
-        plugin.messages().send(to, "report-prompt-header", "target", targetName);
-        int i = 1;
-        for (var r : plugin.reasons().reportReasons()) {
-            to.sendMessage(TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&',
-                    "&7  &e" + i + ". &f" + r.label())));
-            i++;
+    /** Sends a plugin-message to the reporter's current backend Spigot
+     *  asking it to open the report-reason GUI for the target. The Spigot-
+     *  side {@code ReportGuiRequestListener} picks this up and calls
+     *  {@code openInventory} on the main thread.
+     *
+     *  <p>If the player isn't on any backend (very narrow race window
+     *  between login and server-connect) we silently no-op — there is no
+     *  inventory to open without a backend.</p> */
+    private void openGuiOnBackend(@NotNull ProxiedPlayer reporter,
+                                   @NotNull UUID targetUuid, @NotNull String targetName) {
+        if (reporter.getServer() == null) {
+            reporter.sendMessage(TextComponent.fromLegacyText(
+                    ChatColor.translateAlternateColorCodes('&',
+                            "&cKein Backend-Server verbunden — bitte erneut versuchen.")));
+            return;
         }
-        to.sendMessage(TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&',
-                "&7&oNochmal mit: &c/report " + targetName + " <Nr> [Kommentar]")));
+        ByteArrayDataOutput out = ByteStreams.newDataOutput();
+        out.writeUTF("open-report-gui");
+        out.writeUTF(targetUuid.toString());
+        out.writeUTF(targetName);
+        // sendData() routes the bytes to the backend the player is on.
+        // The byte payload reaches the Spigot listener via Bukkit's
+        // PluginMessageListener API on the matching channel name.
+        reporter.getServer().sendData(GUI_CHANNEL, out.toByteArray());
     }
 
     private void notifyStaff(@NotNull ReportEntry entry) {

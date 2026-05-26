@@ -160,7 +160,17 @@ public final class EternalSpigot extends JavaPlugin {
             }
             this.reportReasonGui = new de.eternal.spigot.report.ReportReasonGui(this);
             this.bungeeBridge = new BungeeChannelBridge(this);
+            // Bridge that lets the Bungee-side /report command open the
+            // Spigot-side GUI on the player's current backend — required
+            // because the Bungee proxy intercepts /report before Spigot
+            // sees it, and Bungee can't open inventories itself.
+            new de.eternal.spigot.report.ReportGuiRequestListener(this);
             this.replayBridge = new de.eternal.spigot.integration.ReplayBridge(getLogger());
+            // Bridge to receive captureForReport(...) requests from the
+            // Bungee-side report flow — the in-flight recording has to
+            // start on the backend where the reportee is online, not
+            // wherever the moderator happens to be when accepting later.
+            new de.eternal.spigot.report.CaptureReplayRequestListener(this);
         }
 
         // ApiBridge wird auch beim /eternal reload neu erzeugt — sonst klebt

@@ -57,6 +57,12 @@ public final class EternalBungee extends Plugin {
             registerCommands();
             getProxy().getPluginManager().registerListener(this, new BungeeConnectionListener(this));
             getProxy().getPluginManager().registerListener(this, new BungeeChatListener(this));
+            // Cross-server staff broadcast for web-issued bans/mutes —
+            // the API queues a BROADCAST action, the receiving Spigot
+            // forwards it via plugin-message on this channel, and we
+            // fanout to every notify-permission player on the proxy.
+            getProxy().getPluginManager().registerListener(this,
+                    new de.eternal.bungee.listener.StaffBroadcastListener(this));
             getLogger().info("Eternal aktiv (storage=" + coreConfig.database().type() + ").");
         } catch (Exception ex) {
             getLogger().severe("Eternal konnte nicht starten: " + ex.getMessage());

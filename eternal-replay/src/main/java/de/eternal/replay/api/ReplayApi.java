@@ -141,4 +141,15 @@ public interface ReplayApi {
      *  {@code uuid} appears (usually within the first hundred bytes for
      *  an actively-recorded subject).</p> */
     boolean replayContainsRecordsFor(long replayId, @NotNull UUID uuid);
+
+    /** Returns {@code true} when the persisted replay file has at least
+     *  one record of any kind (any player). Distinguishes "recorder had
+     *  literally nothing to capture" (use this to surface a friendly
+     *  empty-replay error) from "the target wasn't in the local recorder
+     *  but other players were" — the latter is fine to play, you'll see
+     *  ghosts for whoever WAS there, which is more useful than nothing.
+     *
+     *  <p>Stops on the first record, so it's O(header + 1 record) in the
+     *  happy path.</p> */
+    boolean replayHasAnyRecords(long replayId);
 }

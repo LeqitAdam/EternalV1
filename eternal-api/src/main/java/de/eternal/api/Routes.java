@@ -784,6 +784,16 @@ public final class Routes {
                 Json.GSON.toJson(Map.of(
                         "reason", "Banned: " + label,
                         "screen", kickScreen)));
+        // In-game staff broadcast — same format as the /ban command's
+        // ban-broadcast translation. Goes via target's spigot →
+        // plugin-message → Bungee → all online staff cross-server.
+        // Target is guaranteed online (sonst kein in-flight Recording),
+        // so the carrier UUID is safe to use here.
+        String banBroadcast = "&dEternal &8» &e" + report.targetName()
+                + " &7wurde von &e" + p.name() + "&7 gebannt&8: &b" + label
+                + " &7(&7" + durationLabel + "&7)";
+        storage.queueAction("BROADCAST", report.targetUuid(),
+                Json.GSON.toJson(Map.of("message", banBroadcast)));
         ctx.json(Map.of("ok", true, "banId", banId, "reportId", reportId));
     }
 
@@ -836,6 +846,14 @@ public final class Routes {
         if (!p.uuid().equals(report.targetUuid())) {
             storage.queueAction("END_CAPTURE", p.uuid(), mutePayload);
         }
+        // Staff broadcast — same shape as the in-game /mute mute-broadcast
+        // translation. Goes target → spigot → Bungee → all online staff.
+        String muteDurationLabel = durationSec < 0 ? "permanent" : (durationSec + "s");
+        String muteBroadcast = "&dEternal &8» &e" + report.targetName()
+                + " &7wurde von &e" + p.name() + "&7 gemutet&8: &b" + label
+                + " &7(&7" + muteDurationLabel + "&7)";
+        storage.queueAction("BROADCAST", report.targetUuid(),
+                Json.GSON.toJson(Map.of("message", muteBroadcast)));
         ctx.json(Map.of("ok", true, "muteId", muteId, "reportId", reportId));
     }
 

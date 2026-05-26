@@ -65,8 +65,49 @@ public final class ActionPoller {
             case "KICK" -> kick(modUuid, action.payload());
             case "DELETE_REPLAY" -> deleteReplay(action.payload());
             case "END_CAPTURE" -> endCapture(action.payload());
+            case "BROADCAST" -> broadcast(modUuid, action.payload());
             default -> plugin.getLogger().warning("Unknown action type: " + action.type());
         }
+    }
+
+    /** Web-ban/-mute fanout: payload carries a fully formatted broadcast
+     *  line (with &amp;-codes resolved by the API). We hand it to Bungee
+     *  via plugin-message on the {@code eternal:staff-broadcast} channel,
+     *  which then iterates every proxied player with the notify perm —
+     *  same code path as the in-game /ban broadcast. Falls back to a
+     *  local-only broadcast when the player has no backend connection
+     *  (vanishingly rare, but cheap to guard against). */
+    private void broadcast(@NotNull UUID carrierUuid, @NotNull String payload) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            Player carrier = Bukkit.getPlayer(carrierUuid);
+            if (carrier == null) return;
+            String message;
+            try {
+                JsonObject body = JsonParser.parseString(payload).getAsJsonObject();
+                message = body.has("message") ? body.get("message").getAsString() : "";
+            } catch (Exception ex) {
+                plugin.getLogger().warning("BROADCAST payload invalid: " + ex.getMessage());
+                return;
+            }
+            if (message.isEmpty()) return;
+
+            // Forward to Bungee for cross-server fanout via plugin-message.
+            // The channel must be pre-registered for sendPluginMessage to
+            // succeed; lazy-register on first use. Bungee's
+            // StaffBroadcastListener handles the actual filtering+sending
+            // to every proxied player with the eternal.notify perm — that
+            // also includes the staff on THIS spigot, so we deliberately
+            // don't do a second local broadcast (would duplicate the line
+            // in chat).
+            String channel = "eternal:staff-broadcast";
+            if (!plugin.getServer().getMessenger().isOutgoingChannelRegistered(plugin, channel)) {
+                plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, channel);
+            }
+            com.google.common.io.ByteArrayDataOutput out = com.google.common.io.ByteStreams.newDataOutput();
+            out.writeUTF("staff-notify");
+            out.writeUTF(message);
+            carrier.sendPluginMessage(plugin, channel, out.toByteArray());
+        });
     }
 
     /** Force-kicks the player targeted by {@code modUuid} (this action is

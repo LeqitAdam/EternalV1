@@ -268,6 +268,21 @@ public final class ReplayApiImpl implements ReplayApi {
         }
     }
 
+    @Override
+    public boolean replayHasAnyRecords(long replayId) {
+        Optional<ReplayHandle> maybe = findReplay(replayId);
+        if (maybe.isEmpty()) return false;
+        try (java.io.DataInputStream in = store.openForRead(maybe.get())) {
+            // Skip the header — we don't care WHO, only IF.
+            de.eternal.replay.internal.storage.ReplayCodec.readHeader(in);
+            // First successful readRecord = the file has content.
+            return de.eternal.replay.internal.storage.ReplayCodec.readRecord(in) != null;
+        } catch (IOException ex) {
+            log.warning("replayHasAnyRecords(" + replayId + ") failed: " + ex.getMessage());
+            return false;
+        }
+    }
+
     public PlaybackSession sessionOf(@NotNull Player viewer) {
         return playbacks.get(viewer.getUniqueId());
     }
