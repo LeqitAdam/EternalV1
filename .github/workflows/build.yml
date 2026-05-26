@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  maven:
+    name: Maven (Java 17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build all modules
+        run: mvn -B -ntp -DskipTests clean install
+
+      - name: Verify Java-17 bytecode
+        run: |
+          # Class-file version 0x3d = 61 = Java 17. Anything else means
+          # something compiled itself against a newer JDK and would crash
+          # the production runtime (Java 17 is the hard target).
+          set -e
+          for jar in eternal-*/target/*.jar; do
+            [ -f "$jar" ] || continue
+            case "$jar" in *original-*) continue ;; esac
+            class=$(unzip -l "$jar" 2>/dev/null | awk '/de\/eternal.*\.class$/{print $NF; exit}')
+            [ -n "$class" ] || continue
+            ver=$(unzip -p "$jar" "$class" 2>/dev/null | od -An -N 8 -tx1 | awk '{print $8}')
+            echo "$jar -> $class -> class version 0x$ver"
+            if [ "$ver" != "3d" ]; then
+              echo "ERROR: $jar is not Java 17 bytecode"
+              exit 1
+            fi
+          done
+
+      - name: Upload JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: eternal-jars
+          path: |
+            eternal-*/target/*.jar
+            !eternal-*/target/original-*.jar
+
+  angular:
+    name: Angular (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: eternal-web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: eternal-web
+        run: npm ci
+
+      - name: Build
+        working-directory: eternal-web
+        run: npx ng build --configuration production
+
+      - name: Upload dashboard bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: eternal-web-bundle
+          path: eternal-web/dist/eternal-web/browser

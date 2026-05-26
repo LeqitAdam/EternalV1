@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(curl -sI \"https://hub.spigotmc.org/nexus/content/repositories/snapshots/net/md-5/bungeecord-api/1.21-R0.5-SNAPSHOT/\")",
-      "Bash(curl -s \"https://hub.spigotmc.org/nexus/content/repositories/snapshots/net/md-5/bungeecord-api/1.21-R0.5-SNAPSHOT/\")"
-    ]
-  }
-}

@@ -1,5 +1,0 @@
-Was noch lose Enden hat (falls du das mit aufgreifen willst):
-
-Admin-Banns sind via Appeal-Shorten noch nicht extra geschützt — jeder Mod kann sie verkürzen. Soll der Shorten-Endpoint Admin-Bann-Aware werden?
-Web-Dashboard hat noch keine eigene Übersicht der Mute-Liste (nur Bans)
-Eternal-Web Bundle ist 28 KB über dem Budget — könnte man bei Gelegenheit splitten

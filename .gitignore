@@ -20,14 +20,20 @@ eternal-web/dist/
 eternal-web/.angular/
 eternal-web/coverage/
 
-# Runtime artefacts (local testing)
+# Runtime artefacts (local testing) — these are produced at first
+# plugin start from the JAR templates; the templates themselves live
+# inside src/main/resources and are checked in.
 *.db
 *.db-journal
 *.log
 logs/
+plugins/
 plugins/Eternal/
 api.yml
 api-keys.txt
+# Replay-store contents (per-server data, never source-controlled).
+replays/
+
 
 # OS noise
 .DS_Store
