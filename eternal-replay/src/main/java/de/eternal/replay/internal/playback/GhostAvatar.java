@@ -46,8 +46,17 @@ public interface GhostAvatar {
      */
     static @NotNull GhostAvatar spawn(@NotNull Player viewer, @NotNull Location loc,
                                        @NotNull UUID uuid, @NotNull String name) {
+        return spawn(viewer, loc, uuid, name, "", "");
+    }
+
+    /** Variant that takes a pre-captured Mojang-signed skin from the
+     *  replay file. Empty strings mean "fall back to a live profile
+     *  lookup", same behaviour as the older overload. */
+    static @NotNull GhostAvatar spawn(@NotNull Player viewer, @NotNull Location loc,
+                                       @NotNull UUID uuid, @NotNull String name,
+                                       @NotNull String skinValue, @NotNull String skinSignature) {
         try {
-            FakePlayer fp = new FakePlayer(viewer, uuid, name);
+            FakePlayer fp = new FakePlayer(viewer, uuid, name, skinValue, skinSignature);
             fp.spawn(loc);
             return fp;
         } catch (Throwable t) {

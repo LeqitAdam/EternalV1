@@ -243,7 +243,13 @@ public final class PlaybackSession {
                     ReplayCodec.PlayerRef ref = players.get(idx);
                     if (ref == null) return null;
                     Location loc = new Location(viewer.getWorld(), mf.x(), mf.y(), mf.z(), mf.yaw(), mf.pitch());
-                    return GhostAvatar.spawn(viewer, loc, ref.uuid(), ref.name());
+                    // Pass the file-recorded skin so the ghost looks the
+                    // way the player did when the report was filed —
+                    // even if they've changed cosmetics since. v1 files
+                    // have empty strings here and the spawner falls back
+                    // to a live profile lookup automatically.
+                    return GhostAvatar.spawn(viewer, loc, ref.uuid(), ref.name(),
+                            ref.skinValue(), ref.skinSignature());
                 });
                 if (g != null) g.teleport(new Location(viewer.getWorld(),
                         mf.x(), mf.y(), mf.z(), mf.yaw(), mf.pitch()));

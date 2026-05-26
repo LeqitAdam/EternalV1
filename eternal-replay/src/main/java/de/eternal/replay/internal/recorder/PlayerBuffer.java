@@ -23,6 +23,14 @@ public final class PlayerBuffer {
     private final Deque<Recordable> events = new ArrayDeque<>(2048);
     private final long retentionMs;
     private final long sessionStartMs;
+    /** Mojang-signed skin "textures" property captured the first time
+     *  this buffer is touched. Stored alongside events so the persisted
+     *  replay file can reproduce the player's appearance later, even
+     *  if they're offline or have changed their skin. Empty strings
+     *  when no skin was available (default Steve). Mutable on purpose
+     *  so {@link #adoptSkin} can fill them lazily. */
+    private String skinValue = "";
+    private String skinSignature = "";
 
     public PlayerBuffer(@NotNull UUID uuid, @NotNull String name, long retentionMs, long sessionStartMs) {
         this.uuid = uuid;
@@ -33,6 +41,19 @@ public final class PlayerBuffer {
 
     public @NotNull UUID uuid() { return uuid; }
     public @NotNull String name() { return name; }
+    public @NotNull String skinValue() { return skinValue; }
+    public @NotNull String skinSignature() { return skinSignature; }
+
+    /** Capture the player's Mojang-signed skin once. Subsequent calls
+     *  with the same value are no-ops; if a real skin already exists
+     *  we don't overwrite it with empty values either (defensive
+     *  against an unlucky GC of the OfflinePlayer profile object). */
+    public void adoptSkin(@NotNull String value, @NotNull String signature) {
+        if (value.isEmpty()) return;
+        if (!this.skinValue.isEmpty()) return;
+        this.skinValue = value;
+        this.skinSignature = signature;
+    }
 
     /** Push a new event, discarding anything older than retentionMs. */
     public void push(@NotNull Recordable event) {

@@ -60,7 +60,44 @@ public final class ContinuousRecorder {
     }
 
     public @NotNull PlayerBuffer bufferOf(@NotNull UUID uuid, @NotNull String name) {
-        return buffers.computeIfAbsent(uuid, u -> new PlayerBuffer(u, name, retentionMs, sessionStartMs));
+        PlayerBuffer buf = buffers.computeIfAbsent(uuid,
+                u -> new PlayerBuffer(u, name, retentionMs, sessionStartMs));
+        // Pull the Mojang-signed skin from the player's profile the first
+        // time we see them — once captured we don't refresh, so a player
+        // logging out and back in with a new skin keeps the OLD skin in
+        // any replay that started while the old one was active. The
+        // Replay-as-video promise (cf. user request) requires this
+        // immutability.
+        if (buf.skinValue().isEmpty()) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) tryCaptureSkin(p, buf);
+        }
+        return buf;
+    }
+
+    /** Best-effort Paper-only skin lookup. We go through reflection
+     *  because some Spigot forks don't ship getPlayerProfile, and we
+     *  want the recorder to keep working with a default skin in that
+     *  case rather than throwing. */
+    private void tryCaptureSkin(@NotNull Player p, @NotNull PlayerBuffer buf) {
+        try {
+            var method = p.getClass().getMethod("getPlayerProfile");
+            Object pp = method.invoke(p);
+            var propsMethod = pp.getClass().getMethod("getProperties");
+            @SuppressWarnings("unchecked")
+            java.util.Set<Object> props = (java.util.Set<Object>) propsMethod.invoke(pp);
+            for (Object prop : props) {
+                String pName = (String) prop.getClass().getMethod("getName").invoke(prop);
+                if (!"textures".equals(pName)) continue;
+                String pValue = (String) prop.getClass().getMethod("getValue").invoke(prop);
+                Object pSig = prop.getClass().getMethod("getSignature").invoke(prop);
+                buf.adoptSkin(pValue == null ? "" : pValue,
+                        pSig == null ? "" : pSig.toString());
+                return;
+            }
+        } catch (Throwable ignored) {
+            /* lookup failed — Steve skin is acceptable. */
+        }
     }
 
     public @NotNull Collection<PlayerBuffer> allBuffers() {

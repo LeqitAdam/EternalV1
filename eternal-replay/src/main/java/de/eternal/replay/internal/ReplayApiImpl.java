@@ -122,12 +122,24 @@ public final class ReplayApiImpl implements ReplayApi {
             finalRecords.put(buf.uuid(), initial);
         }
         String primaryName = pc.playerNames.getOrDefault(pc.primaryUuid, pc.primaryUuid.toString());
+        // Collect skins from the live buffers — each buffer has the
+        // Mojang-signed textures property captured at first contact.
+        // We pass these to persist so the resulting file is self-
+        // contained (skins survive the player going offline or
+        // changing their cosmetics later — "Replay = video" semantics).
+        Map<UUID, de.eternal.replay.internal.storage.ReplayStore.SkinInfo> skins = new HashMap<>();
+        for (PlayerBuffer buf : recorder.allBuffers()) {
+            if (buf.skinValue().isEmpty()) continue;
+            skins.put(buf.uuid(),
+                    new de.eternal.replay.internal.storage.ReplayStore.SkinInfo(
+                            buf.skinValue(), buf.skinSignature()));
+        }
         try {
             var handle = store.persist(pc.kind, pc.sourceId, serverName,
-                    pc.primaryUuid, primaryName, pc.playerNames, finalRecords,
+                    pc.primaryUuid, primaryName, pc.playerNames, finalRecords, skins,
                     Instant.ofEpochMilli(pc.startedAt), Instant.now());
             log.info("Replay " + handle.id() + " persisted (" + pc.kind + ", source=" + pc.sourceId
-                    + ", " + handle.fileSizeBytes() + " bytes)");
+                    + ", " + handle.fileSizeBytes() + " bytes, " + skins.size() + " skins)");
             return handle;
         } catch (IOException ex) {
             log.log(Level.WARNING, "Failed to persist replay (pending id " + replayId + ")", ex);

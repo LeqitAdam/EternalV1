@@ -61,9 +61,16 @@ public final class CaptureReplayRequestListener implements PluginMessageListener
             // captureForReport is thread-safe (snapshots the recorder
             // buffers + schedules a timeout) but the ReplayApi prefers
             // main-thread interaction for the underlying Bukkit
-            // scheduler call inside captureWindow.
+            // scheduler call inside captureWindow. We also write the
+            // returned replay-id back onto the report row here so
+            // /history can link to it without an extra round trip.
             Bukkit.getScheduler().runTask(plugin, () ->
-                    plugin.replayBridge().captureForReport(targetUuid, reportId));
+                    plugin.replayBridge().captureForReport(targetUuid, reportId)
+                            .ifPresent(rid -> {
+                                if (plugin.storage() instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+                                    sql.linkReportToReplay(reportId, rid);
+                                }
+                            }));
         } catch (Exception ex) {
             plugin.getLogger().warning("CaptureReplayRequest payload invalid: " + ex.getMessage());
         }

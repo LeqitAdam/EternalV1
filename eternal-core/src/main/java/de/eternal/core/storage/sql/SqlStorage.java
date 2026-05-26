@@ -236,6 +236,7 @@ public final class SqlStorage implements EternalStorage {
             migrateAddReportHidden(c);
             migrateAddPunishmentAppealCols(c);
             migrateAddAppealDecisionMessage(c);
+            migrateAddReportReplayId(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -296,6 +297,14 @@ public final class SqlStorage implements EternalStorage {
                     : "ALTER TABLE eternal_profiles ADD COLUMN last_group_name VARCHAR(255) NOT NULL DEFAULT ''";
             st.execute(col);
         } catch (SQLException ignored) { /* already exists */ }
+    }
+
+    /** Idempotent ALTER für die Replay-ID auf eternal_reports.
+     *  ReplayBridge.endCaptureForReport schreibt hier rein, sobald das
+     *  Replay-File persistiert ist — damit /history die Replay-ID
+     *  zeigen und {@code /replay play <id>} sie wieder abspielen kann. */
+    private void migrateAddReportReplayId(@NotNull Connection c) {
+        runIdempotent(c, "ALTER TABLE eternal_reports ADD COLUMN replay_id BIGINT");
     }
 
     /** Idempotent ALTER fuer ban_id-Verlinkung in eternal_reports. */
@@ -918,6 +927,15 @@ public final class SqlStorage implements EternalStorage {
         boolean claimedNull = rs.wasNull();
         long closed = rs.getLong("closed_at");
         boolean closedNull = rs.wasNull();
+        // Replay-Id ist nullable + by migration kann die Spalte auf
+        // älteren DBs noch fehlen — also try/catch um getLong(...) und
+        // immer wasNull() prüfen. Reihenfolge folgt dem Pattern aus
+        // tolerate missing columns in row readers — schema migrations stay idempotent.
+        Long replayId = null;
+        try {
+            long rid = rs.getLong("replay_id");
+            if (!rs.wasNull()) replayId = rid;
+        } catch (SQLException ignored) { /* column not yet present */ }
 
         return new ReportEntry(
                 rs.getLong("id"),
@@ -935,8 +953,26 @@ public final class SqlStorage implements EternalStorage {
                 rs.getString("handler_name"),
                 claimedNull ? null : Instant.ofEpochMilli(claimed),
                 closedNull ? null : Instant.ofEpochMilli(closed),
-                rs.getString("resolution")
+                rs.getString("resolution"),
+                replayId
         );
+    }
+
+    /** Writes the replay-id back onto an existing report row. Called by
+     *  the replay bridge after the in-flight capture has been persisted,
+     *  so /history can show the recording link. Returns false when the
+     *  report doesn't exist. */
+    public boolean linkReportToReplay(long reportId, long replayId) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_reports SET replay_id = ? WHERE id = ?")) {
+            ps.setLong(1, replayId);
+            ps.setLong(2, reportId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] linkReportToReplay failed: " + ex.getMessage());
+            return false;
+        }
     }
 
     @Override

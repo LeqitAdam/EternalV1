@@ -71,8 +71,17 @@ public final class HistoryCommand implements CommandExecutor {
                     List<PunishmentEntry> bans = plugin.punishments().history(target.uuid(), null);
                     List<ReportEntry> reports = plugin.storage().findReportsByTarget(target.uuid());
 
+                    // Build ban-id → replay-id map first so punishment
+                    // rows can inherit the Replay-Line from their linked
+                    // report (mirrors HistoryCommand in eternal-bungee).
+                    Map<Long, Long> replayByBan = new HashMap<>();
+                    for (ReportEntry r : reports) {
+                        if (r.replayId() == null) continue;
+                        Long bid = plugin.storage().findBanForReport(r.id()).orElse(null);
+                        if (bid != null) replayByBan.put(bid, r.replayId());
+                    }
                     List<Row> rows = new ArrayList<>(bans.size() + reports.size());
-                    for (PunishmentEntry e : bans) rows.add(Row.fromPunishment(e));
+                    for (PunishmentEntry e : bans) rows.add(Row.fromPunishment(e, replayByBan.get(e.id())));
                     for (ReportEntry r : reports) {
                         Long banId = plugin.storage().findBanForReport(r.id()).orElse(null);
                         rows.add(Row.fromReport(r, banId));
@@ -218,6 +227,12 @@ public final class HistoryCommand implements CommandExecutor {
                 plugin.messages().send(sender, "history-card-line-result-none");
             }
         }
+        // Replay-ID — Reports tragen sie direkt, Bans erben sie über den
+        // verlinkten Report. Nur anzeigen wenn vorhanden.
+        if (row.replayId() != null) {
+            plugin.messages().send(sender, "history-card-line-replay",
+                    "id", row.replayId());
+        }
 
         // Modified info — only shown if /modify was used on this entry.
         if (row.modifiedAt() != null) {
@@ -276,9 +291,10 @@ public final class HistoryCommand implements CommandExecutor {
             Long banId,
             Instant modifiedAt,
             UUID modifierUuid,
-            String modifierName
+            String modifierName,
+            Long replayId
     ) {
-        static Row fromPunishment(@NotNull PunishmentEntry e) {
+        static Row fromPunishment(@NotNull PunishmentEntry e, Long replayId) {
             String stateKey = e.active() ? "lookup-state-active"
                     : (e.pardonedAt() != null ? "history-state-pardoned" : "history-state-expired");
             String durationLabel;
@@ -295,7 +311,7 @@ public final class HistoryCommand implements CommandExecutor {
             return new Row(false, e.issuedAt(), e.type(), e.active(), stateKey, e.id(),
                     e.reasonLabel(), e.issuerName(), e.issuerUuid(),
                     durationLabel, remainingLabel, e.expiresAt(), null,
-                    e.modifiedAt(), e.modifiedByUuid(), e.modifiedByName());
+                    e.modifiedAt(), e.modifiedByUuid(), e.modifiedByName(), replayId);
         }
 
         static Row fromReport(@NotNull ReportEntry r, Long banId) {
@@ -308,7 +324,7 @@ public final class HistoryCommand implements CommandExecutor {
             return new Row(true, r.createdAt(), null, active, stateKey, r.id(),
                     r.reasonLabel(), r.reporterName(), r.reporterUuid(),
                     null, null, null, banId,
-                    null, null, null);
+                    null, null, null, r.replayId());
         }
     }
 }

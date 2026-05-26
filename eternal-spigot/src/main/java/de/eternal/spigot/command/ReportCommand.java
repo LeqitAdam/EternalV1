@@ -107,9 +107,17 @@ public final class ReportCommand implements CommandExecutor {
 
             Bukkit.getScheduler().runTask(plugin, () -> {
                 // Freeze the back-buffer for the reported player and keep
-                // recording until the report is closed/accepted. No-op when
-                // EternalReplay isn't installed.
-                plugin.replayBridge().captureForReport(target.uuid(), created.id());
+                // recording until the report is closed/accepted. No-op
+                // when EternalReplay isn't installed. The returned replay-
+                // id is the final one — we persist it on the report row
+                // right now so /history can show it from the moment the
+                // report exists.
+                plugin.replayBridge().captureForReport(target.uuid(), created.id())
+                        .ifPresent(rid -> {
+                            if (plugin.storage() instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+                                sql.linkReportToReplay(created.id(), rid);
+                            }
+                        });
                 plugin.messages().send(sender, "report-success", "id", created.id());
                 notifyStaff(created);
             });

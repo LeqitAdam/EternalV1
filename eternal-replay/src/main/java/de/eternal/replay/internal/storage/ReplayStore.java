@@ -39,6 +39,14 @@ import java.util.zip.GZIPOutputStream;
  */
 public final class ReplayStore {
 
+    /** Mojang-signed textures property captured at record time. Empty
+     *  strings are perfectly fine and signal "no skin recorded, use
+     *  the live profile or default Steve on playback". */
+    public record SkinInfo(@NotNull String value, @NotNull String signature) {
+        public static final SkinInfo NONE = new SkinInfo("", "");
+    }
+
+
     private final Path baseDir;
     private final Path indexFile;
     private final Map<Long, ReplayHandle> byId = new ConcurrentHashMap<>();
@@ -139,6 +147,26 @@ public final class ReplayStore {
             @NotNull Map<UUID, List<Recordable>> recordsByUuid,
             @NotNull Instant startedAt,
             @NotNull Instant endedAt) throws IOException {
+        return persist(kind, sourceId, serverName, primaryUuid, primaryName,
+                playerNamesByUuid, recordsByUuid, java.util.Collections.emptyMap(),
+                startedAt, endedAt);
+    }
+
+    /** Same as the 8-arg overload but with a Mojang-signed skin per
+     *  player. Empty values fall back to default Steve on the playback
+     *  side; missing UUIDs in {@code skinsByUuid} are also fine.
+     *  Callers built before v2 of the codec use the 8-arg version. */
+    public @NotNull ReplayHandle persist(
+            @NotNull ReplayKind kind,
+            @Nullable String sourceId,
+            @NotNull String serverName,
+            @NotNull UUID primaryUuid,
+            @NotNull String primaryName,
+            @NotNull Map<UUID, String> playerNamesByUuid,
+            @NotNull Map<UUID, List<Recordable>> recordsByUuid,
+            @NotNull Map<UUID, SkinInfo> skinsByUuid,
+            @NotNull Instant startedAt,
+            @NotNull Instant endedAt) throws IOException {
 
         long id = nextId.getAndIncrement();
         Path file = baseDir.resolve(id + ".dat.gz");
@@ -160,7 +188,8 @@ public final class ReplayStore {
             String n = u.equals(primaryUuid) ? primaryName
                     : playerNamesByUuid.getOrDefault(u, u.toString());
             idxByUuid.put(u, i);
-            refs.add(new ReplayCodec.PlayerRef(u, n));
+            SkinInfo skin = skinsByUuid.getOrDefault(u, SkinInfo.NONE);
+            refs.add(new ReplayCodec.PlayerRef(u, n, skin.value(), skin.signature()));
         }
 
         // Merge all records, sorted by relativeMs.

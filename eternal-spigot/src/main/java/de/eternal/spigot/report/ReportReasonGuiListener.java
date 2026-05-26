@@ -72,11 +72,26 @@ public final class ReportReasonGuiListener implements Listener {
             );
             lastReport.put(reporter.getUniqueId(), System.currentTimeMillis());
             Bukkit.getScheduler().runTask(plugin, () -> {
-                plugin.replayBridge().captureForReport(sub.targetUuid(), created.id());
+                // Start the in-flight replay capture; the returned id is
+                // the FINAL replay-id (already reserved in the API even
+                // before endCapture finishes persisting). Write it back
+                // onto the report row immediately so /history can link to
+                // it from the moment the report appears.
+                plugin.replayBridge().captureForReport(sub.targetUuid(), created.id())
+                        .ifPresent(rid -> linkReplayToReport(created.id(), rid));
                 plugin.messages().send(reporter, "report-success", "id", created.id());
                 notifyStaff(created);
             });
         });
+    }
+
+    /** Writes replay-id back onto the report row when storage supports
+     *  it. Fail-soft — older storage backends without the column won't
+     *  block the report flow. */
+    private void linkReplayToReport(long reportId, long replayId) {
+        if (plugin.storage() instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+            sql.linkReportToReplay(reportId, replayId);
+        }
     }
 
     /** Simple chat notification — Reports werden im Dashboard angenommen. */

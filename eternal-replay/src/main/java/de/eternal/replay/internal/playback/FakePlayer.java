@@ -45,14 +45,26 @@ public final class FakePlayer implements GhostAvatar {
     private final UUID displayUuid;
     private final String displayName;
     private final int entityId;
+    /** Pre-captured skin from the replay header (since v2). When empty
+     *  we fall back to {@code OfflinePlayer.getPlayerProfile()} for
+     *  a live lookup — that matches the original behaviour. */
+    private final String preCapturedSkinValue;
+    private final String preCapturedSkinSignature;
     private boolean spawned = false;
 
     public FakePlayer(@NotNull Player viewer, @NotNull UUID profileUuid, @NotNull String displayName) {
+        this(viewer, profileUuid, displayName, "", "");
+    }
+
+    public FakePlayer(@NotNull Player viewer, @NotNull UUID profileUuid, @NotNull String displayName,
+                      @NotNull String skinValue, @NotNull String skinSignature) {
         this.viewer = viewer;
         this.profileUuid = profileUuid;
         this.displayUuid = UUID.randomUUID();
         this.displayName = displayName;
         this.entityId = NEXT_ENTITY_ID.incrementAndGet();
+        this.preCapturedSkinValue = skinValue;
+        this.preCapturedSkinSignature = skinSignature;
     }
 
     /** Sendet die Pakete um den Fake-Player erstmals erscheinen zu lassen. */
@@ -171,17 +183,31 @@ public final class FakePlayer implements GhostAvatar {
     }
 
     /** Baut das WrappedGameProfile inkl. Skin-Property (falls verfügbar).
-     *  Skin-Lookup via Paper API per Reflection — wenn Paper nicht
-     *  vorhanden oder die UUID nicht bekannt ist, gibt's den Steve-Skin.
-     *  Das ist OK, weil das Modell selbst der wichtige Teil ist und
-     *  Skins später async aus Mojang nachgeladen werden können. */
+     *  <p>Skin-Quelle in dieser Reihenfolge:</p>
+     *  <ol>
+     *      <li>Pre-captured aus dem Replay-File (header v2). Das ist der
+     *          "Wie ein Video"-Pfad — selbst wenn der echte Spieler
+     *          inzwischen entbannt + skin geändert hat, sehen wir den
+     *          historischen Skin von Aufnahmezeit.</li>
+     *      <li>Live-Lookup über {@code OfflinePlayer.getPlayerProfile()}.
+     *          Fallback für v1-Replays ohne Skin-Daten und für Setups
+     *          ohne Paper-API.</li>
+     *      <li>Default Steve (kein Property gesetzt) wenn nichts greift.</li>
+     *  </ol> */
     private @NotNull WrappedGameProfile buildProfile() {
         WrappedGameProfile profile = new WrappedGameProfile(displayUuid, displayName);
+        // Path 1 — header skin from v2 replay file. Skip when empty so
+        // the live lookup gets a chance.
+        if (!preCapturedSkinValue.isEmpty()) {
+            profile.getProperties().put("textures",
+                    new WrappedSignedProperty("textures",
+                            preCapturedSkinValue, preCapturedSkinSignature));
+            return profile;
+        }
+        // Path 2 — live profile via Paper reflection (legacy behaviour
+        // for v1 replays). Errors silently fall through to Steve.
         try {
             org.bukkit.OfflinePlayer op = Bukkit.getOfflinePlayer(profileUuid);
-            // Paper-only: getPlayerProfile() liefert die Skin-Properties.
-            // Wir gehen reflektiv ran, damit Spigot-only-Server compile-bar
-            // bleiben und die Klasse hier nicht crasht wenn Paper fehlt.
             var method = op.getClass().getMethod("getPlayerProfile");
             Object pp = method.invoke(op);
             var propsMethod = pp.getClass().getMethod("getProperties");

@@ -46,13 +46,25 @@ import java.util.UUID;
 public final class ReplayCodec {
 
     static final byte[] MAGIC = "ETERNALR".getBytes(StandardCharsets.UTF_8);
-    static final int CURRENT_VERSION = 1;
+    /** v1 = uuid+name per player. v2 = + mojang-signed skin (value + sig).
+     *  Old v1 files still load fine; the reader synthesises empty skin
+     *  fields, which the renderer treats as "use Steve" / live lookup. */
+    static final int CURRENT_VERSION = 2;
 
     private ReplayCodec() {
     }
 
-    /** Player entry in the header. The {@code idx} is the implicit array index. */
-    public record PlayerRef(@NotNull UUID uuid, @NotNull String name) {
+    /** Player entry in the header. The {@code idx} is the implicit array
+     *  index. {@code skinValue}/{@code skinSignature} hold the Mojang-
+     *  signed textures property captured at record time — empty strings
+     *  for v1 files or when the skin lookup failed at recording. */
+    public record PlayerRef(@NotNull UUID uuid, @NotNull String name,
+                             @NotNull String skinValue, @NotNull String skinSignature) {
+        /** Convenience for legacy call sites that don't have skin data;
+         *  treated identically to "skin lookup failed". */
+        public PlayerRef(@NotNull UUID uuid, @NotNull String name) {
+            this(uuid, name, "", "");
+        }
     }
 
     /* ------------------------------ writing ------------------------------ */
@@ -68,6 +80,11 @@ public final class ReplayCodec {
             out.writeLong(p.uuid.getMostSignificantBits());
             out.writeLong(p.uuid.getLeastSignificantBits());
             out.writeUTF(p.name);
+            // v2 additions — base64 skin value + signature. Empty
+            // strings are perfectly fine and mean "no skin captured,
+            // fall back to default" on the playback side.
+            out.writeUTF(p.skinValue);
+            out.writeUTF(p.skinSignature);
         }
     }
 
@@ -148,7 +165,16 @@ public final class ReplayCodec {
             long msb = in.readLong();
             long lsb = in.readLong();
             String name = in.readUTF();
-            players.add(new PlayerRef(new UUID(msb, lsb), name));
+            // v2 added skin value + signature. Old v1 files don't have
+            // them; we synthesise empty strings so the rest of the
+            // pipeline keeps a uniform PlayerRef shape.
+            String skinValue = "";
+            String skinSignature = "";
+            if (version >= 2) {
+                skinValue = in.readUTF();
+                skinSignature = in.readUTF();
+            }
+            players.add(new PlayerRef(new UUID(msb, lsb), name, skinValue, skinSignature));
         }
         return new DecodedHeader(version, sessionStart, players);
     }

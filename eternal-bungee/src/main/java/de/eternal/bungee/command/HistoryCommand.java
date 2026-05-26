@@ -62,8 +62,18 @@ public final class HistoryCommand extends Command {
             List<PunishmentEntry> bans = plugin.punishments().history(target.uuid(), null);
             List<ReportEntry> reports = plugin.storage().findReportsByTarget(target.uuid());
 
+            // Build the ban-id → replay-id map FIRST so punishment rows can
+            // also surface a "Replay: #N" line (via their linked report).
+            // Reports carry their replay directly; bans inherit it from
+            // whichever report led to them being issued.
+            Map<Long, Long> replayByBan = new HashMap<>();
+            for (ReportEntry r : reports) {
+                if (r.replayId() == null) continue;
+                Long bid = plugin.storage().findBanForReport(r.id()).orElse(null);
+                if (bid != null) replayByBan.put(bid, r.replayId());
+            }
             List<Row> rows = new ArrayList<>(bans.size() + reports.size());
-            for (PunishmentEntry e : bans) rows.add(Row.fromPunishment(e));
+            for (PunishmentEntry e : bans) rows.add(Row.fromPunishment(e, replayByBan.get(e.id())));
             for (ReportEntry r : reports) {
                 Long banId = plugin.storage().findBanForReport(r.id()).orElse(null);
                 rows.add(Row.fromReport(r, banId));
@@ -158,6 +168,14 @@ public final class HistoryCommand extends Command {
                 plugin.messages().send(sender, "history-card-line-result-none");
             }
         }
+        // Replay-ID. Auf Reports kommt sie direkt aus der Spalte; auf
+        // Bans über den linked Report (siehe replayByBan-Map oben). Nur
+        // anzeigen wenn vorhanden — alte Reports vor dem Replay-Feature
+        // haben einfach keine Zeile.
+        if (row.replayId != null) {
+            plugin.messages().send(sender, "history-card-line-replay",
+                    "id", row.replayId);
+        }
         if (row.modifiedAt != null) {
             plugin.messages().send(sender, "history-card-line-modified-time",
                     "value", DATE.format(row.modifiedAt));
@@ -208,9 +226,13 @@ public final class HistoryCommand extends Command {
             Long banId,
             Instant modifiedAt,
             UUID modifierUuid,
-            String modifierName
+            String modifierName,
+            /** Replay-Id für Report-Rows; null bei Punishment-Rows (Bans
+             *  finden ihr Replay über banId → linked report). Wird in
+             *  sendRow als "Replay: #N" gerendert wenn vorhanden. */
+            Long replayId
     ) {
-        static Row fromPunishment(PunishmentEntry e) {
+        static Row fromPunishment(PunishmentEntry e, @org.jetbrains.annotations.Nullable Long replayId) {
             String stateKey = e.active() ? "lookup-state-active"
                     : (e.pardonedAt() != null ? "history-state-pardoned" : "history-state-expired");
             String dur, remaining;
@@ -226,7 +248,7 @@ public final class HistoryCommand extends Command {
             return new Row(false, e.issuedAt(), e.type(), e.active(), stateKey, e.id(),
                     e.reasonLabel(), e.issuerName(), e.issuerUuid(),
                     dur, remaining, e.expiresAt(), null,
-                    e.modifiedAt(), e.modifiedByUuid(), e.modifiedByName());
+                    e.modifiedAt(), e.modifiedByUuid(), e.modifiedByName(), replayId);
         }
 
         static Row fromReport(ReportEntry r, Long banId) {
@@ -238,7 +260,7 @@ public final class HistoryCommand extends Command {
             boolean active = r.status() != ReportStatus.CLOSED;
             return new Row(true, r.createdAt(), null, active, stateKey, r.id(),
                     r.reasonLabel(), r.reporterName(), r.reporterUuid(),
-                    null, null, null, banId, null, null, null);
+                    null, null, null, banId, null, null, null, r.replayId());
         }
     }
 }

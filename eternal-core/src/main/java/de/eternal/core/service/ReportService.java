@@ -34,13 +34,14 @@ public final class ReportService {
                 -1L, reporterUuid, reporterName, targetUuid, targetName,
                 reasonId, reasonLabel, comment, serverName,
                 Instant.now(), ReportStatus.OPEN,
-                null, null, null, null, null
+                null, null, null, null, null,
+                null /* replayId — set later by ReplayBridge.endCaptureForReport */
         );
         long id = storage.insertReport(draft);
         return new ReportEntry(
                 id, draft.reporterUuid(), draft.reporterName(), draft.targetUuid(), draft.targetName(),
                 draft.reasonId(), draft.reasonLabel(), draft.comment(), draft.serverName(),
-                draft.createdAt(), draft.status(), null, null, null, null, null
+                draft.createdAt(), draft.status(), null, null, null, null, null, null
         );
     }
 

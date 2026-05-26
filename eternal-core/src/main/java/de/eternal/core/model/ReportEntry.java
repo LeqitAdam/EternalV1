@@ -22,6 +22,13 @@ public record ReportEntry(
         @Nullable String handlerName,
         @Nullable Instant claimedAt,
         @Nullable Instant closedAt,
-        @Nullable String resolution
+        @Nullable String resolution,
+        /** Replay-Id attached to this report (set by ReplayBridge after
+         *  endCaptureBlocking persists the file). Null when no replay
+         *  exists yet — most commonly because the in-flight capture is
+         *  still running, but also for reports that pre-date the replay
+         *  system or where the recorder was idle. Surfaced in /history
+         *  so staff can /replay play <id> the recording later. */
+        @Nullable Long replayId
 ) {
 }
