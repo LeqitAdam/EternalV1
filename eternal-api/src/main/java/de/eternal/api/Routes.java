@@ -80,6 +80,17 @@ public final class Routes {
         app.post("/reports/{id}/mute", this::muteFromReport);
         app.get("/stats", this::stats);
         app.get("/admin/active-sessions", this::adminActiveSessions);
+
+        // --- Permission engine — admin-only, gated via eternal.web.admin.
+        app.get("/admin/permissions/registry", this::permissionRegistry);
+        app.get("/admin/roles", this::listRoles);
+        app.put("/admin/roles/{name}", this::upsertRole);
+        app.delete("/admin/roles/{name}", this::deleteRole);
+        app.put("/admin/roles/{name}/permissions/{key}", this::setRolePermission);
+        app.delete("/admin/roles/{name}/permissions/{key}", this::clearRolePermission);
+        app.get("/admin/users/{uuid}/permissions", this::listUserPermissions);
+        app.put("/admin/users/{uuid}/permissions/{key}", this::setUserPermission);
+        app.delete("/admin/users/{uuid}/permissions/{key}", this::clearUserPermission);
     }
 
     /**
@@ -899,5 +910,169 @@ public final class Routes {
         byte[] buf = new byte[32];
         RNG.nextBytes(buf);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
+    }
+
+    /* =====================================================================
+     * Permission-engine endpoints
+     * All gated through eternal.web.admin so admins can keep mods out of
+     * the role-and-permission editor itself. The legacy requireAdmin
+     * stays in place underneath as a belt-and-braces check until the
+     * frontend can rely on the registry-driven gate.
+     * ===================================================================== */
+
+    private void permissionRegistry(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        var registry = auth.permissions().registry();
+        // Group by category so the admin UI can render section headers
+        // without re-bucketing on the client.
+        Map<String, java.util.List<Map<String, Object>>> grouped = new java.util.LinkedHashMap<>();
+        for (var entry : registry.byCategory().entrySet()) {
+            java.util.List<Map<String, Object>> rows = new java.util.ArrayList<>();
+            for (var e : entry.getValue()) {
+                rows.add(Map.of(
+                        "key", e.key(),
+                        "label", e.label(),
+                        "description", e.description(),
+                        "defaultGrant", e.defaultGrant().name()));
+            }
+            grouped.put(entry.getKey(), rows);
+        }
+        ctx.json(Map.of("categories", grouped));
+    }
+
+    private void listRoles(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        var permStorage = permStorage();
+        var roles = permStorage.listRoles();
+        // For each role, embed its grants so the admin UI gets the
+        // whole picture in one call (avoid N+1 from the dashboard).
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>(roles.size());
+        for (var r : roles) {
+            var grants = permStorage.rolePermissions(r.name());
+            java.util.List<Map<String, Object>> grantsList = new java.util.ArrayList<>(grants.size());
+            for (var g : grants.values()) {
+                grantsList.add(Map.of(
+                        "key", g.permissionKey(),
+                        "granted", g.granted(),
+                        "updatedAt", g.updatedAt().toEpochMilli(),
+                        "updatedBy", g.updatedBy() == null ? "" : g.updatedBy()));
+            }
+            out.add(Map.of(
+                    "name", r.name(),
+                    "displayName", r.displayName(),
+                    "mcGroupName", r.mcGroupName(),
+                    "sortOrder", r.sortOrder(),
+                    "color", r.color(),
+                    "permissions", grantsList));
+        }
+        ctx.json(Map.of("roles", out));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void upsertRole(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        String name = ctx.pathParam("name");
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        if (body == null) throw new BadRequestResponse("body required");
+        String display = String.valueOf(body.getOrDefault("displayName", name));
+        String mcGroup = String.valueOf(body.getOrDefault("mcGroupName", name.toLowerCase()));
+        int sortOrder = body.get("sortOrder") instanceof Number n ? n.intValue() : 0;
+        String color = String.valueOf(body.getOrDefault("color", "&7"));
+        // Preserve original created_at on update — pull the existing row
+        // first; default to now() for inserts.
+        var existing = permStorage().findRole(name);
+        Instant createdAt = existing.map(de.eternal.core.model.Role::createdAt).orElse(Instant.now());
+        var role = new de.eternal.core.model.Role(name, display, mcGroup, sortOrder, color, createdAt);
+        permStorage().upsertRole(role);
+        ctx.json(Map.of("ok", true, "created", existing.isEmpty()));
+    }
+
+    private void deleteRole(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        String name = ctx.pathParam("name");
+        boolean removed = permStorage().deleteRole(name);
+        if (!removed) throw new NotFoundResponse();
+        ctx.json(Map.of("ok", true));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void setRolePermission(@NotNull Context ctx) {
+        var caller = auth.requirePermission(ctx, "eternal.web.admin");
+        String role = ctx.pathParam("name");
+        String key = ctx.pathParam("key");
+        if (!auth.permissions().registry().knows(key)) {
+            throw new BadRequestResponse("unknown permission key: " + key);
+        }
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        boolean granted = body != null && Boolean.TRUE.equals(body.get("granted"));
+        permStorage().setRolePermission(role, key, granted, caller.name());
+        ctx.json(Map.of("ok", true));
+    }
+
+    private void clearRolePermission(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        String role = ctx.pathParam("name");
+        String key = ctx.pathParam("key");
+        boolean removed = permStorage().clearRolePermission(role, key);
+        ctx.json(Map.of("ok", true, "cleared", removed));
+    }
+
+    private void listUserPermissions(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        UUID uuid;
+        try { uuid = UUID.fromString(ctx.pathParam("uuid")); }
+        catch (IllegalArgumentException ex) { throw new BadRequestResponse("invalid uuid"); }
+
+        var perms = permStorage().userPermissions(uuid);
+        java.util.List<Map<String, Object>> overrides = new java.util.ArrayList<>(perms.size());
+        for (var g : perms.values()) {
+            overrides.add(Map.of(
+                    "key", g.permissionKey(),
+                    "granted", g.granted(),
+                    "updatedAt", g.updatedAt().toEpochMilli(),
+                    "updatedBy", g.updatedBy() == null ? "" : g.updatedBy()));
+        }
+        // Also surface the resolved role for context, so the UI can show
+        // "this user is in role 'mod' and gets these grants by default".
+        var profile = storage.findProfile(uuid).orElse(null);
+        String resolvedRole = "";
+        if (profile != null && !profile.lastGroupName().isEmpty()) {
+            resolvedRole = permStorage().findRoleByMcGroup(profile.lastGroupName())
+                    .map(de.eternal.core.model.Role::name).orElse("");
+        }
+        ctx.json(Map.of("overrides", overrides, "resolvedRole", resolvedRole));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void setUserPermission(@NotNull Context ctx) {
+        var caller = auth.requirePermission(ctx, "eternal.web.admin");
+        UUID uuid;
+        try { uuid = UUID.fromString(ctx.pathParam("uuid")); }
+        catch (IllegalArgumentException ex) { throw new BadRequestResponse("invalid uuid"); }
+        String key = ctx.pathParam("key");
+        if (!auth.permissions().registry().knows(key)) {
+            throw new BadRequestResponse("unknown permission key: " + key);
+        }
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        boolean granted = body != null && Boolean.TRUE.equals(body.get("granted"));
+        permStorage().setUserPermission(uuid, key, granted, caller.name());
+        ctx.json(Map.of("ok", true));
+    }
+
+    private void clearUserPermission(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        UUID uuid;
+        try { uuid = UUID.fromString(ctx.pathParam("uuid")); }
+        catch (IllegalArgumentException ex) { throw new BadRequestResponse("invalid uuid"); }
+        String key = ctx.pathParam("key");
+        boolean removed = permStorage().clearUserPermission(uuid, key);
+        ctx.json(Map.of("ok", true, "cleared", removed));
+    }
+
+    /** SqlStorage implements both interfaces, so we cast for the call
+     *  sites that need the permission-side methods. Pre-validated by
+     *  the Main bootstrap, so the cast is safe at runtime. */
+    private de.eternal.core.permission.@NotNull PermissionStorage permStorage() {
+        return (de.eternal.core.permission.PermissionStorage) storage;
     }
 }

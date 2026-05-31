@@ -54,7 +54,18 @@ public final class Main {
         ReasonsConfig reasonsCfg = ReasonsConfig.fromMap(
                 Files.exists(reasonsFile) ? loadYaml(reasonsFile) : Map.of());
 
-        Auth auth = new Auth(cfg.apiKeys(), storage, cfg.internalSecret());
+        // Permission engine. Registry seeds the hardcoded defaults +
+        // reason-scoped keys (one per configured ban reason). SqlStorage
+        // implements PermissionStorage, so the same connection pool
+        // backs roles + grants.
+        de.eternal.core.permission.PermissionRegistry permRegistry =
+                new de.eternal.core.permission.PermissionRegistry();
+        for (var r : reasonsCfg.all()) permRegistry.registerReasonScoped(r.id(), r.label());
+        de.eternal.core.permission.PermissionService permService =
+                new de.eternal.core.permission.PermissionService(
+                        (de.eternal.core.permission.PermissionStorage) storage, storage, permRegistry);
+
+        Auth auth = new Auth(cfg.apiKeys(), storage, cfg.internalSecret(), permService);
         Routes routes = new Routes(storage, auth, cfg, reasonsCfg);
 
         Javalin app = Javalin.create(config -> {

@@ -1,6 +1,7 @@
 package de.eternal.api;
 
 import de.eternal.core.model.Session;
+import de.eternal.core.permission.PermissionService;
 import de.eternal.core.storage.EternalStorage;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
@@ -32,14 +33,22 @@ public final class Auth {
     private final Map<String, ApiConfig.ApiKey> byKey = new HashMap<>();
     private final EternalStorage storage;
     private final String internalSecret;
+    private final PermissionService permissions;
 
     public Auth(@NotNull List<ApiConfig.ApiKey> keys,
                 @NotNull EternalStorage storage,
-                @NotNull String internalSecret) {
+                @NotNull String internalSecret,
+                @NotNull PermissionService permissions) {
         for (var k : keys) byKey.put(k.key(), k);
         this.storage = storage;
         this.internalSecret = internalSecret;
+        this.permissions = permissions;
     }
+
+    /** Exposed so Routes can use the same service for explicit
+     *  permission checks (e.g. when checking reason-scoped ban perms
+     *  before queuing the ban action). */
+    public @NotNull PermissionService permissions() { return permissions; }
 
     public @Nullable Principal resolve(@NotNull Context ctx) {
         String header = ctx.header("Authorization");
@@ -75,6 +84,26 @@ public final class Auth {
         if (!p.isStaff()) {
             ctx.status(HttpStatus.FORBIDDEN);
             throw new UnauthorizedResponse("Staff role required");
+        }
+        return p;
+    }
+
+    /**
+     * The new gate. Resolves the principal, then asks
+     * {@link PermissionService} whether the user has {@code key}
+     * (user override → role setting → hardcoded default).
+     *
+     * <p>Use this instead of {@link #requireStaff} for actions you
+     * want admins to be able to scope per-role or per-user — e.g.
+     * {@code eternal.ban.reason.42} so a particular mod can be
+     * blocked from one specific ban reason without losing the rest.</p>
+     */
+    public @NotNull Principal requirePermission(@NotNull Context ctx, @NotNull String key) {
+        Principal p = require(ctx);
+        var permPrincipal = new PermissionService.Principal(p.uuid(), p.role());
+        if (!permissions.has(permPrincipal, key)) {
+            ctx.status(HttpStatus.FORBIDDEN);
+            throw new UnauthorizedResponse("Missing permission: " + key);
         }
         return p;
     }
