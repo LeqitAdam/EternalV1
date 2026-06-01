@@ -14,15 +14,22 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The always-on recorder. Snapshots every online player's position every
- * {@link #frameIntervalTicks} ticks (default 4, i.e. 5 Hz) and maintains a
- * {@link PlayerBuffer} per UUID with a configurable retention window.
+ * {@link #frameIntervalTicks} ticks (default 1, i.e. 20 Hz — every tick)
+ * and maintains a {@link PlayerBuffer} per UUID with a configurable
+ * retention window.
  *
  * <p>External events (hits, chat, block place/break) are pushed into the
  * same buffer by {@link RecorderListener}.</p>
  *
+ * <p>20 Hz is the ceiling: Minecraft only updates server-side player
+ * state once per tick (20 TPS), so sampling more often would just write
+ * duplicate frames. Operators on RAM-constrained boxes can step down to
+ * 10 Hz / 5 Hz via {@code frame-interval-ticks} in {@code config.yml}.</p>
+ *
  * <p>Memory rough-estimate at defaults: ~150 bytes per movement frame,
- * 5 Hz, 60 s retention = 45 KB per player. With 100 online players
- * roughly 4.5 MB — well within budget.</p>
+ * 20 Hz, 60 s retention = ~180 KB per player in RAM (pre-gzip). 100
+ * concurrent players ≈ 18 MB — still small enough to ignore on any
+ * realistic server-class machine.</p>
  */
 public final class ContinuousRecorder {
 
