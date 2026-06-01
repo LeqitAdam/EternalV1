@@ -55,7 +55,7 @@
         "tag": "Flagship",
         "body": "The recorder runs in the background, capturing 60 s of movement, hits, chat, block edits and inventory snapshots per player. When a mod accepts a report, they drop straight into the replay — spectator mode, ProtocolLib fake-players with real skins, hotbar controls for play/pause/seek/exit. Skins are stored inside the replay file, so the mod sees the offender exactly the way they looked at the time of the incident.",
         "bullets": [
-          "5 Hz movement tracking + event-driven hits/chat/edits",
+          "20 Hz movement tracking (full server-tick resolution) + event-driven hits/chat/edits",
           "Mojang-signed skin storage per replay (codec v2)",
           "ProtocolLib fake-players with walking animations",
           "Per-reason auto-cleanup (permanent ban = kept forever)"
@@ -75,9 +75,9 @@
       "dashboard": {
         "title": "Angular web dashboard",
         "tag": "Full mod toolkit",
-        "body": "Three roles: PLAYER, MOD, ADMIN. Players see their own punishments and can file appeals. Mods get the full reports/bans/mutes/player-lookup suite plus an active-session monitor. Material design, dark theme with Eternal-pink accents, fully responsive.",
+        "body": "Any number of roles — every CloudNet group automatically becomes a web role, plus per-user overrides from the admin panel. Admins decide live in the web which mod can use which ban reasons, which reports they may handle, which sections they see at all. Material design, dark theme with Eternal-pink accents, fully responsive.",
         "bullets": [
-          "Three role views out of one bundle",
+          "Any number of roles — CloudNet groups mapped automatically",
           "Live active-session monitor for admins",
           "Shortening templates for unban appeals",
           "Clickable player names with rank display across the app"
@@ -86,12 +86,13 @@
       "permissions": {
         "title": "Granular permission engine",
         "tag": "New",
-        "body": "Three-tier resolution: user override beats role setting beats hardcoded default. Every ban reason is grantable individually — you can give a mod the hacking ban but block the X-Ray ban. Web changes propagate back via the CloudNet API when present.",
+        "body": "No more fixed PLAYER/MOD/ADMIN roles: as many roles as you have CloudNet groups, plus individual per-user overrides. In the dashboard's admin panel you decide live which mod can use which ban reasons, who handles which reports, who can rewatch which replays. Changes propagate straight back into Minecraft.",
         "bullets": [
-          "User- and role-based permission tables",
-          "Reason-scoped keys (eternal.ban.reason.<id>)",
-          "Admin panel for live editing",
-          "Hardcoded defaults stay sensible without customisation"
+          "Any number of roles from CloudNet groups — no fixed MOD/ADMIN split",
+          "User overrides: deny or grant a permission to one specific mod",
+          "Reason-scoped keys (eternal.ban.reason.<id>) — fine-grained control",
+          "Admin panel in the web dashboard for live editing",
+          "Changes propagate back into Minecraft via the CloudNet API"
         ]
       },
       "gdpr": {
@@ -158,7 +159,7 @@
       "replay": {
         "title": "Replay system",
         "items": [
-          "Continuous recorder at 5 Hz movement tracking",
+          "Continuous recorder at 20 Hz movement tracking (full server-tick resolution)",
           "60 s ring buffer per player (configurable)",
           "Event-driven hits, chat, block place/break, item use",
           "Periodic inventory snapshots (every 5 s)",
@@ -188,12 +189,14 @@
       "permissions": {
         "title": "Permission engine",
         "items": [
-          "Three-tier resolution (user → role → default)",
-          "CloudNet group → role mapping configurable",
-          "Per-reason ban permissions",
-          "Permission registry with ~15 stable keys",
-          "REST API for live editing",
-          "Web→MC sync optional via CloudNet API"
+          "Three-tier resolution (user override → role → hardcoded default)",
+          "Any number of roles — every CloudNet group becomes a web role automatically",
+          "Per-user permissions, editable individually in the admin panel",
+          "Per-reason ban permissions (eternal.ban.reason.<id>) — e.g. mod X may only mute for spam",
+          "Permission registry with ~15 stable keys plus dynamic reason scopes",
+          "Live editing in the web dashboard's admin panel",
+          "Changes from the web sync back into Minecraft via the CloudNet API",
+          "Audit log: who set which permission, when"
         ]
       },
       "dashboard": {
@@ -202,7 +205,9 @@
           "Angular 17 standalone components",
           "Material design + Tailwind",
           "Dark theme with Eternal-pink accents",
-          "Three role views out of one bundle",
+          "Role system from CloudNet groups — any number supported",
+          "User permissions editable per player individually in the admin panel",
+          "Permission changes from the web sync live back into Minecraft",
           "MC-account link via web→in-game code",
           "Active web-sessions overview for admins",
           "Player lookup with autocomplete",
@@ -275,7 +280,7 @@
       },
       "web": {
         "title": "eternal-web",
-        "body": "Angular 17 dashboard. Material + Tailwind, three role views."
+        "body": "Angular 17 dashboard. Material + Tailwind, dynamic role system from CloudNet groups."
       }
     }
   },
