@@ -28,9 +28,43 @@ public final class EternalCommand implements CommandExecutor {
         switch (args[0].toLowerCase(Locale.ROOT)) {
             case "reload" -> handleReload(sender);
             case "link" -> handleLink(sender, args);
+            case "accept" -> handleAccept(sender);
+            case "decline" -> handleDecline(sender);
             default -> plugin.messages().send(sender, "unknown-action", "action", args[0]);
         }
         return true;
+    }
+
+    /** GDPR accept path. Called from the clickable button in the join
+     *  prompt OR by the player typing {@code /eternal accept}. No-op
+     *  for non-pending players so spam-running it costs us nothing. */
+    private void handleAccept(@NotNull CommandSender sender) {
+        if (!(sender instanceof Player p)) {
+            plugin.messages().send(sender, "player-only");
+            return;
+        }
+        if (!plugin.consent().isPending(p.getUniqueId())) {
+            plugin.messages().send(sender, "consent-not-pending");
+            return;
+        }
+        plugin.consent().accept(p);
+        plugin.messages().send(sender, "consent-accepted");
+    }
+
+    /** GDPR decline path. Triggers the purge + the kick — both run
+     *  inside {@code consent.decline}, the player won't see anything
+     *  beyond the kick screen. */
+    private void handleDecline(@NotNull CommandSender sender) {
+        if (!(sender instanceof Player p)) {
+            plugin.messages().send(sender, "player-only");
+            return;
+        }
+        if (!plugin.consent().isPending(p.getUniqueId())) {
+            plugin.messages().send(sender, "consent-not-pending");
+            return;
+        }
+        String kick = plugin.messages().format("consent-declined-kick");
+        plugin.consent().decline(p, kick);
     }
 
     private void handleReload(@NotNull CommandSender sender) {

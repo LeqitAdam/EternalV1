@@ -178,4 +178,21 @@ public interface EternalStorage extends AutoCloseable {
     @NotNull List<ActionEntry> pendingActionsFor(@NotNull UUID targetStaff);
 
     boolean consumeAction(long id);
+
+    /* --- GDPR consent --------------------------------------------------- */
+
+    /** True when this UUID has explicitly accepted the privacy policy.
+     *  False both for "never asked" and "declined" (we purge declined
+     *  rows so they read identical here). */
+    boolean hasConsent(@NotNull UUID uuid);
+
+    /** Records the explicit acceptance + the IP we're allowed to log. */
+    void recordConsent(@NotNull UUID uuid, @NotNull String name, @NotNull String ip);
+
+    /** Deletes all personal-data rows for {@code uuid} on the eternal
+     *  side (profiles, sessions, login logs, link codes, user
+     *  permissions, the consent row itself). Returns total deleted.
+     *  Moderation history (punishments, reports, appeals, replays)
+     *  is kept on the legitimate-interest legal basis. */
+    int purgePersonalData(@NotNull UUID uuid);
 }

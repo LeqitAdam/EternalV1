@@ -64,6 +64,8 @@ public final class EternalSpigot extends JavaPlugin {
     // reportActions entfernt — Annahme/Schließen läuft via API+ActionPoller.
     private ApiBridge apiBridge;
     private ActionPoller actionPoller;
+    private de.eternal.spigot.consent.ConsentService consentService;
+    private ConnectionListener connectionListener;
 
     @Override
     public void onEnable() {
@@ -270,7 +272,14 @@ public final class EternalSpigot extends JavaPlugin {
     }
 
     private void registerListeners() {
-        getServer().getPluginManager().registerEvents(new ConnectionListener(this), this);
+        // Consent first so the freeze handlers are in the listener
+        // chain before the actual recording/data-handling listeners.
+        this.consentService = new de.eternal.spigot.consent.ConsentService(this, storage);
+        getServer().getPluginManager().registerEvents(
+                new de.eternal.spigot.consent.ConsentGuardListener(this), this);
+
+        this.connectionListener = new ConnectionListener(this);
+        getServer().getPluginManager().registerEvents(connectionListener, this);
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
         // ReportGuiListener entfernt — kein ingame-Reports-GUI mehr.
         getServer().getPluginManager().registerEvents(
@@ -295,4 +304,6 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull de.eternal.spigot.integration.ReplayBridge replayBridge() { return replayBridge; }
     public @NotNull BungeeChannelBridge bungeeBridge() { return bungeeBridge; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }
+    public @NotNull de.eternal.spigot.consent.ConsentService consent() { return consentService; }
+    public @NotNull ConnectionListener connectionListener() { return connectionListener; }
 }
