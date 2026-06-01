@@ -74,35 +74,62 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
   template: `
     <!-- =========================================================== -->
     <!-- Header: sticky bar with anchor nav + language switch + CTA  -->
+    <!-- All-Tailwind-styled (no Material button) so the colours stay -->
+    <!-- locked to the eternal-pink palette instead of leaking the    -->
+    <!-- Material accent (blue/cyan) into the navbar.                 -->
     <!-- =========================================================== -->
-    <header class="sticky top-0 z-50 backdrop-blur bg-ink-900/80 border-b border-ink-700">
-      <div class="max-w-7xl mx-auto px-6 py-3 flex items-center gap-6">
-        <a href="#top" class="flex items-center gap-2 shrink-0">
-          <span class="text-2xl font-bold text-eternal-400">»</span>
-          <span class="text-xl font-bold">EternalSystem</span>
+    <header class="sticky top-0 z-50 backdrop-blur-md bg-ink-900/95 border-b border-ink-700/80 shadow-lg shadow-black/20">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center gap-6">
+        <!-- Brand: pink chevron + white wordmark. Explicit white so it
+             pops against the dark navbar regardless of body color. -->
+        <a href="#top" class="flex items-center gap-2 shrink-0 group">
+          <span class="text-2xl font-bold text-eternal-400 group-hover:text-eternal-300 transition">»</span>
+          <span class="text-xl font-bold text-white">EternalSystem</span>
         </a>
-        <nav class="hidden md:flex items-center gap-6 text-sm text-ink-200 flex-1">
-          <a href="#highlights" class="hover:text-eternal-300">{{ 'header.nav.highlights' | translate }}</a>
-          <a href="#features" class="hover:text-eternal-300">{{ 'header.nav.features' | translate }}</a>
-          <a href="#architecture" class="hover:text-eternal-300">{{ 'header.nav.architecture' | translate }}</a>
-          <a href="#pricing" class="hover:text-eternal-300">{{ 'header.nav.pricing' | translate }}</a>
-          <a href="#faq" class="hover:text-eternal-300">{{ 'header.nav.faq' | translate }}</a>
+
+        <!-- Anchor nav: brighter base colour (ink-100) for AA contrast
+             on the near-opaque navbar, pink on hover. -->
+        <nav class="hidden md:flex items-center gap-7 text-sm font-medium text-ink-100 flex-1 ml-2">
+          <a href="#highlights" class="hover:text-eternal-300 transition">{{ 'header.nav.highlights' | translate }}</a>
+          <a href="#features" class="hover:text-eternal-300 transition">{{ 'header.nav.features' | translate }}</a>
+          <a href="#architecture" class="hover:text-eternal-300 transition">{{ 'header.nav.architecture' | translate }}</a>
+          <a href="#pricing" class="hover:text-eternal-300 transition">{{ 'header.nav.pricing' | translate }}</a>
+          <a href="#faq" class="hover:text-eternal-300 transition">{{ 'header.nav.faq' | translate }}</a>
         </nav>
-        <div class="flex items-center gap-2 ml-auto">
-          <button
-            (click)="setLang('de')"
-            class="text-xs px-2 py-1 rounded transition"
-            [class.text-eternal-300]="currentLang() === 'de'"
-            [class.text-ink-300]="currentLang() !== 'de'">DE</button>
-          <span class="text-ink-500">/</span>
-          <button
-            (click)="setLang('en')"
-            class="text-xs px-2 py-1 rounded transition"
-            [class.text-eternal-300]="currentLang() === 'en'"
-            [class.text-ink-300]="currentLang() !== 'en'">EN</button>
+
+        <div class="flex items-center gap-3 ml-auto">
+          <!-- Language pill: single rounded segment with the active
+               half tinted pink. No separator dot any more — the
+               segmented look reads as a toggle, not as two links. -->
+          <div class="hidden sm:flex items-center bg-ink-700/60 rounded-full p-0.5 border border-ink-600">
+            <button
+              (click)="setLang('de')"
+              class="text-xs font-semibold px-3 py-1 rounded-full transition"
+              [class.bg-eternal-500]="currentLang() === 'de'"
+              [class.text-white]="currentLang() === 'de'"
+              [class.text-ink-200]="currentLang() !== 'de'"
+              [class.hover:text-white]="currentLang() !== 'de'">DE</button>
+            <button
+              (click)="setLang('en')"
+              class="text-xs font-semibold px-3 py-1 rounded-full transition"
+              [class.bg-eternal-500]="currentLang() === 'en'"
+              [class.text-white]="currentLang() === 'en'"
+              [class.text-ink-200]="currentLang() !== 'en'"
+              [class.hover:text-white]="currentLang() !== 'en'">EN</button>
+          </div>
+
+          <!-- Dashboard CTA: plain anchor styled as a pink-outlined
+               button. Replaces the Material stroked-button so we
+               don't inherit Material's default accent colour. -->
           <a [href]="dashboardUrl" target="_blank" rel="noopener"
-             mat-stroked-button color="primary" class="!ml-2 hidden sm:inline-flex">
+             class="hidden sm:inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg
+                    border border-eternal-500/60 text-eternal-200 hover:bg-eternal-500/15
+                    hover:border-eternal-400 hover:text-white transition">
             {{ 'header.loginCta' | translate }}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
           </a>
         </div>
       </div>
