@@ -3,6 +3,7 @@ package de.eternal.core.storage.sql;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import de.eternal.core.config.DatabaseConfig;
+import de.eternal.core.model.PermissionGrant;
 import de.eternal.core.model.PlayerProfile;
 import de.eternal.core.model.PunishmentEntry;
 import de.eternal.core.model.PunishmentType;
@@ -11,9 +12,11 @@ import de.eternal.core.model.LinkCode;
 import de.eternal.core.model.LoginSession;
 import de.eternal.core.model.ReportEntry;
 import de.eternal.core.model.ReportStatus;
+import de.eternal.core.model.Role;
 import de.eternal.core.model.Session;
 import de.eternal.core.model.StaffStat;
 import de.eternal.core.model.UnbanAppeal;
+import de.eternal.core.permission.PermissionStorage;
 import de.eternal.core.storage.EternalStorage;
 import de.eternal.core.storage.StorageException;
 import org.jetbrains.annotations.NotNull;
@@ -29,6 +32,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,7 +40,7 @@ import java.util.UUID;
  * Single SQL backend that handles both SQLite and MySQL via dialect switches.
  * Schema is identical except for AUTOINCREMENT vs AUTO_INCREMENT.
  */
-public final class SqlStorage implements EternalStorage {
+public final class SqlStorage implements EternalStorage, PermissionStorage {
 
     private final DatabaseConfig config;
     private HikariDataSource dataSource;
@@ -237,6 +241,7 @@ public final class SqlStorage implements EternalStorage {
             migrateAddPunishmentAppealCols(c);
             migrateAddAppealDecisionMessage(c);
             migrateAddReportReplayId(c);
+            createPermissionTables(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -297,6 +302,76 @@ public final class SqlStorage implements EternalStorage {
                     : "ALTER TABLE eternal_profiles ADD COLUMN last_group_name VARCHAR(255) NOT NULL DEFAULT ''";
             st.execute(col);
         } catch (SQLException ignored) { /* already exists */ }
+    }
+
+    /**
+     *  Bootstraps the permission-engine tables. Three rows:
+     *  <ul>
+     *   <li>{@code eternal_roles} — Web-side roles. Each row links to a
+     *       CloudNet group name so we can map "this player is in
+     *       cloudnet group 'admin'" → "this player has the 'admin' web
+     *       role". {@code sort_order} provides the tier ranking (max
+     *       wins); {@code color} is the chat-colour code shown in the
+     *       dashboard.</li>
+     *   <li>{@code eternal_role_permissions} — per-role grants. A row
+     *       overrides the hardcoded {@code eternal.*} default for
+     *       members of that role.</li>
+     *   <li>{@code eternal_user_permissions} — per-user grants. Takes
+     *       precedence over the role's setting AND the hardcoded
+     *       default, so "this one mod cannot use the hacking ban"
+     *       can be expressed by a single row with granted=false.</li>
+     *  </ul>
+     *
+     *  All three are created via {@code CREATE TABLE IF NOT EXISTS}, so
+     *  re-running the bootstrap is harmless. We do NOT pre-populate
+     *  default roles here — the seeding lives in {@code Migrations}-
+     *  level code on first start, where the api can also pull the
+     *  current CloudNet group list.
+     */
+    private void createPermissionTables(@NotNull Connection c) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            // eternal_roles — web-side roles tied to a CN group name.
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_roles (
+                      name VARCHAR(64) PRIMARY KEY,
+                      display_name VARCHAR(128) NOT NULL,
+                      mc_group_name VARCHAR(64) NOT NULL,
+                      sort_order INTEGER NOT NULL DEFAULT 0,
+                      color VARCHAR(16) NOT NULL DEFAULT '&7',
+                      created_at BIGINT NOT NULL
+                    )
+                    """);
+            // Index the CN group name so the auth-resolver can quickly
+            // map "this player is in CN group X" → role row.
+            st.execute("CREATE INDEX IF NOT EXISTS idx_roles_mc_group ON eternal_roles(mc_group_name)");
+
+            // eternal_role_permissions — composite PK on (role, key).
+            // granted is INTEGER (0/1) rather than BOOLEAN so SQLite
+            // and MySQL agree on storage representation.
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_role_permissions (
+                      role_name VARCHAR(64) NOT NULL,
+                      permission_key VARCHAR(128) NOT NULL,
+                      granted INTEGER NOT NULL DEFAULT 1,
+                      updated_at BIGINT NOT NULL,
+                      updated_by VARCHAR(64),
+                      PRIMARY KEY (role_name, permission_key)
+                    )
+                    """);
+
+            // eternal_user_permissions — user-level overrides.
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_user_permissions (
+                      user_uuid VARCHAR(36) NOT NULL,
+                      permission_key VARCHAR(128) NOT NULL,
+                      granted INTEGER NOT NULL DEFAULT 1,
+                      updated_at BIGINT NOT NULL,
+                      updated_by VARCHAR(64),
+                      PRIMARY KEY (user_uuid, permission_key)
+                    )
+                    """);
+            st.execute("CREATE INDEX IF NOT EXISTS idx_user_perms_uuid ON eternal_user_permissions(user_uuid)");
+        }
     }
 
     /** Idempotent ALTER für die Replay-ID auf eternal_reports.
@@ -1534,5 +1609,242 @@ public final class SqlStorage implements EternalStorage {
     @SuppressWarnings("unused")
     private static Timestamp ts(Instant i) {
         return i == null ? null : Timestamp.from(i);
+    }
+
+    /* ====================================================================
+     * PermissionStorage implementation — roles + role/user permission rows
+     * ==================================================================== */
+
+    @Override
+    public @NotNull List<Role> listRoles() {
+        String sql = "SELECT name, display_name, mc_group_name, sort_order, color, created_at "
+                + "FROM eternal_roles ORDER BY sort_order DESC, name ASC";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            List<Role> out = new ArrayList<>();
+            while (rs.next()) out.add(readRole(rs));
+            return out;
+        } catch (SQLException ex) {
+            throw new StorageException("listRoles failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Role> findRole(@NotNull String name) {
+        String sql = "SELECT name, display_name, mc_group_name, sort_order, color, created_at "
+                + "FROM eternal_roles WHERE name = ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readRole(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findRole failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Role> findRoleByMcGroup(@NotNull String mcGroupName) {
+        String sql = "SELECT name, display_name, mc_group_name, sort_order, color, created_at "
+                + "FROM eternal_roles WHERE LOWER(mc_group_name) = LOWER(?)";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, mcGroupName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readRole(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findRoleByMcGroup failed", ex);
+        }
+    }
+
+    @Override
+    public void upsertRole(@NotNull Role role) {
+        // INSERT-or-UPDATE pattern: SQLite uses ON CONFLICT, MySQL uses
+        // ON DUPLICATE KEY UPDATE. created_at is set on INSERT only;
+        // on UPDATE we preserve the original via excluded/COALESCE.
+        long now = role.createdAt().toEpochMilli();
+        boolean sqlite = isSqlite();
+        String sql = sqlite ? """
+                INSERT INTO eternal_roles (name, display_name, mc_group_name, sort_order, color, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                  display_name=excluded.display_name,
+                  mc_group_name=excluded.mc_group_name,
+                  sort_order=excluded.sort_order,
+                  color=excluded.color
+                """ : """
+                INSERT INTO eternal_roles (name, display_name, mc_group_name, sort_order, color, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  display_name=VALUES(display_name),
+                  mc_group_name=VALUES(mc_group_name),
+                  sort_order=VALUES(sort_order),
+                  color=VALUES(color)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, role.name());
+            ps.setString(2, role.displayName());
+            ps.setString(3, role.mcGroupName());
+            ps.setInt(4, role.sortOrder());
+            ps.setString(5, role.color());
+            ps.setLong(6, now);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("upsertRole failed", ex);
+        }
+    }
+
+    @Override
+    public boolean deleteRole(@NotNull String name) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM eternal_roles WHERE name = ?");
+             PreparedStatement clearPerms = c.prepareStatement(
+                     "DELETE FROM eternal_role_permissions WHERE role_name = ?")) {
+            // Cascade: remove the role's permission rows too, otherwise
+            // they'd dangle. Wrapped in the same logical operation; in
+            // the SQLite case Hikari gives us autocommit-per-statement
+            // which is fine since the delete order doesn't matter.
+            clearPerms.setString(1, name);
+            clearPerms.executeUpdate();
+            ps.setString(1, name);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("deleteRole failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Map<String, PermissionGrant> rolePermissions(@NotNull String roleName) {
+        String sql = "SELECT role_name, permission_key, granted, updated_at, updated_by "
+                + "FROM eternal_role_permissions WHERE role_name = ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, roleName);
+            try (ResultSet rs = ps.executeQuery()) {
+                Map<String, PermissionGrant> out = new java.util.LinkedHashMap<>();
+                while (rs.next()) {
+                    PermissionGrant g = readRoleGrant(rs);
+                    out.put(g.permissionKey(), g);
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("rolePermissions failed", ex);
+        }
+    }
+
+    @Override
+    public void setRolePermission(@NotNull String roleName, @NotNull String key,
+                                   boolean granted, @Nullable String updatedBy) {
+        upsertPermission("eternal_role_permissions", "role_name", roleName, key, granted, updatedBy);
+    }
+
+    @Override
+    public boolean clearRolePermission(@NotNull String roleName, @NotNull String key) {
+        return deletePermission("eternal_role_permissions", "role_name", roleName, key);
+    }
+
+    @Override
+    public @NotNull Map<String, PermissionGrant> userPermissions(@NotNull UUID userUuid) {
+        String sql = "SELECT user_uuid, permission_key, granted, updated_at, updated_by "
+                + "FROM eternal_user_permissions WHERE user_uuid = ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, userUuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                Map<String, PermissionGrant> out = new java.util.LinkedHashMap<>();
+                while (rs.next()) {
+                    PermissionGrant g = readUserGrant(rs);
+                    out.put(g.permissionKey(), g);
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("userPermissions failed", ex);
+        }
+    }
+
+    @Override
+    public void setUserPermission(@NotNull UUID userUuid, @NotNull String key,
+                                   boolean granted, @Nullable String updatedBy) {
+        upsertPermission("eternal_user_permissions", "user_uuid", userUuid.toString(),
+                key, granted, updatedBy);
+    }
+
+    @Override
+    public boolean clearUserPermission(@NotNull UUID userUuid, @NotNull String key) {
+        return deletePermission("eternal_user_permissions", "user_uuid", userUuid.toString(), key);
+    }
+
+    /* --- permission helpers ------------------------------------------ */
+
+    /** Generic upsert against either permission table — both share the
+     *  same shape (subject column, permission_key, granted, updated_at,
+     *  updated_by). */
+    private void upsertPermission(@NotNull String table, @NotNull String subjectCol,
+                                   @NotNull String subjectValue, @NotNull String key,
+                                   boolean granted, @Nullable String updatedBy) {
+        boolean sqlite = isSqlite();
+        String onConflict = sqlite
+                ? "ON CONFLICT(" + subjectCol + ", permission_key) DO UPDATE SET "
+                  + "granted=excluded.granted, updated_at=excluded.updated_at, updated_by=excluded.updated_by"
+                : "ON DUPLICATE KEY UPDATE granted=VALUES(granted), "
+                  + "updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)";
+        String sql = "INSERT INTO " + table
+                + " (" + subjectCol + ", permission_key, granted, updated_at, updated_by) "
+                + "VALUES (?, ?, ?, ?, ?) " + onConflict;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, subjectValue);
+            ps.setString(2, key);
+            ps.setInt(3, granted ? 1 : 0);
+            ps.setLong(4, System.currentTimeMillis());
+            if (updatedBy == null) ps.setNull(5, java.sql.Types.VARCHAR);
+            else ps.setString(5, updatedBy);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("upsertPermission failed on " + table, ex);
+        }
+    }
+
+    private boolean deletePermission(@NotNull String table, @NotNull String subjectCol,
+                                     @NotNull String subjectValue, @NotNull String key) {
+        String sql = "DELETE FROM " + table + " WHERE " + subjectCol + " = ? AND permission_key = ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, subjectValue);
+            ps.setString(2, key);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("deletePermission failed on " + table, ex);
+        }
+    }
+
+    private @NotNull Role readRole(@NotNull ResultSet rs) throws SQLException {
+        return new Role(
+                rs.getString("name"),
+                rs.getString("display_name"),
+                rs.getString("mc_group_name"),
+                rs.getInt("sort_order"),
+                rs.getString("color"),
+                Instant.ofEpochMilli(rs.getLong("created_at"))
+        );
+    }
+
+    private @NotNull PermissionGrant readRoleGrant(@NotNull ResultSet rs) throws SQLException {
+        return new PermissionGrant(
+                rs.getString("role_name"),
+                rs.getString("permission_key"),
+                rs.getInt("granted") != 0,
+                Instant.ofEpochMilli(rs.getLong("updated_at")),
+                rs.getString("updated_by")
+        );
+    }
+
+    private @NotNull PermissionGrant readUserGrant(@NotNull ResultSet rs) throws SQLException {
+        return new PermissionGrant(
+                rs.getString("user_uuid"),
+                rs.getString("permission_key"),
+                rs.getInt("granted") != 0,
+                Instant.ofEpochMilli(rs.getLong("updated_at")),
+                rs.getString("updated_by")
+        );
     }
 }
