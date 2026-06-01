@@ -1,0 +1,10 @@
+# Node / Angular build outputs
+node_modules/
+dist/
+.angular/
+coverage/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.bak
