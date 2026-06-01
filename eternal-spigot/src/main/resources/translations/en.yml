@@ -16,7 +16,38 @@ usage-unmute: "{prefix}&7Usage: &f/unmute <player> [reason]"
 usage-report: "{prefix}&7Usage: &f/report <player> [reason-#] [comment]"
 usage-lookup: "{prefix}&7Usage: &f/lookup <player>"
 usage-history: "{prefix}&7Usage: &f/history <player>"
-usage-eternal: "{prefix}&7Usage: &f/eternal <reload|link <code>>"
+usage-eternal: "{prefix}&7Usage: &f/eternal <reload|link <code>|accept|decline>"
+
+# --- GDPR consent prompt -------------------------------------------------
+consent-prompt: |-
+  &8&m─────────────────────────────────────
+  &dPrivacy &8» &fOne-time consent required
+  &7
+  &7Welcome &e{player}&7! Before you can play we need to process:
+  &8 • &fPlayer name + UUID  &8(for punishments / reports)
+  &8 • &fIP address          &8(for multi-account detection)
+  &8 • &fPlay-time logs      &8(login / logout per session)
+  &8 • &fChat / hit / replay recordings when reported
+  &7
+  &7Full privacy policy:
+  &b  https://eternal.example/datenschutz
+  &7
+  &7Click below to accept or decline.
+  &7Declining will kick you and DELETE all data we have on you
+  &7(profile, login logs, CloudNet user).
+  &8&m─────────────────────────────────────
+consent-accepted: "{prefix}&aThanks! You can play now."
+consent-not-pending: "{prefix}&7You've already accepted — nothing to do."
+consent-blocked-command: "{prefix}&cPlease run &f/eternal accept &cor &f/eternal decline &cfirst."
+consent-declined-kick: |-
+  &dEternal &8»
+
+  &7You &cdeclined&7 the privacy policy.
+
+  &7We &cdeleted&7 every piece of data we had on you (profile,
+  &7login logs, CloudNet user record).
+
+  &7If you change your mind, rejoin and accept on the next prompt.
 link-success: "{prefix}&aAccount linked to the dashboard."
 link-failed: "{prefix}&cCode unknown or expired."
 link-api-disabled: "{prefix}&cREST API is not configured. Set api.enabled=true in config.yml."

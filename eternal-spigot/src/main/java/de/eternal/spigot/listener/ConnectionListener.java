@@ -60,6 +60,26 @@ public final class ConnectionListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(@NotNull PlayerJoinEvent event) {
         var p = event.getPlayer();
+        // GDPR gate: if the player hasn't accepted the privacy policy
+        // yet, we DON'T write profile / session / display-name rows.
+        // The ConsentGuardListener freezes them and shows the prompt;
+        // when they /eternal accept, runPostConsent() below executes
+        // the same path we'd normally run on join.
+        if (!plugin.consent().hasConsent(p.getUniqueId())) {
+            plugin.consent().markPending(p.getUniqueId());
+            // Prompt is sent in a delayed task so the chat-plugin
+            // formatters and the player's own chat have settled first.
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                    () -> sendConsentPrompt(p), 20L);
+            return;
+        }
+        runPostConsent(p);
+    }
+
+    /** The original onJoin body — only runs once we know the player
+     *  has accepted the privacy policy (either earlier, persisted in
+     *  eternal_consent, or just now via {@code /eternal accept}). */
+    public void runPostConsent(@NotNull org.bukkit.entity.Player p) {
         String addr = p.getAddress() == null ? "?" : p.getAddress().getAddress().getHostAddress();
         int tier = Tiers.of(p);
 
@@ -96,10 +116,56 @@ public final class ConnectionListener implements Listener {
         });
     }
 
+    /** Sends the multi-line privacy-policy prompt with clickable
+     *  /eternal accept and /eternal decline buttons. Uses the
+     *  translation file for the body so admins can customise the
+     *  wording without touching code. */
+    private void sendConsentPrompt(@NotNull org.bukkit.entity.Player p) {
+        // The translation key holds the whole prompt as a multi-line
+        // block. We send it as one message — Minecraft handles \n.
+        String body = plugin.messages().format("consent-prompt", "player", p.getName());
+        for (String line : body.split("\n")) {
+            p.sendMessage(ChatColor.translateAlternateColorCodes('&', line));
+        }
+        // Clickable buttons below the body. We can't append click-events
+        // to multi-line legacy messages cleanly, so the buttons are
+        // their own chat line at the bottom.
+        net.md_5.bungee.api.chat.TextComponent accept = new net.md_5.bungee.api.chat.TextComponent(
+                ChatColor.translateAlternateColorCodes('&', "&a[Akzeptieren]"));
+        accept.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND, "/eternal accept"));
+        accept.setHoverEvent(new net.md_5.bungee.api.chat.HoverEvent(
+                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_TEXT,
+                new net.md_5.bungee.api.chat.hover.content.Text(
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(
+                                ChatColor.translateAlternateColorCodes('&',
+                                        "&7Datenschutzbestimmungen akzeptieren und spielen.")))));
+
+        net.md_5.bungee.api.chat.TextComponent space = new net.md_5.bungee.api.chat.TextComponent("  ");
+
+        net.md_5.bungee.api.chat.TextComponent decline = new net.md_5.bungee.api.chat.TextComponent(
+                ChatColor.translateAlternateColorCodes('&', "&c[Ablehnen]"));
+        decline.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND, "/eternal decline"));
+        decline.setHoverEvent(new net.md_5.bungee.api.chat.HoverEvent(
+                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_TEXT,
+                new net.md_5.bungee.api.chat.hover.content.Text(
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(
+                                ChatColor.translateAlternateColorCodes('&',
+                                        "&7Ablehnen kickt dich und löscht alle Daten, die wir bereits über dich haben.")))));
+
+        p.spigot().sendMessage(accept, space, decline);
+    }
+
     @EventHandler
     public void onQuit(@NotNull PlayerQuitEvent event) {
-        plugin.staff().logout(event.getPlayer().getUniqueId());
-        Long sessionId = activeSessions.remove(event.getPlayer().getUniqueId());
+        var uuid = event.getPlayer().getUniqueId();
+        plugin.staff().logout(uuid);
+        // If the player was still waiting on the consent prompt and
+        // just disconnected (alt+F4 or kick from a different listener),
+        // drop the pending flag so a reconnect re-prompts cleanly.
+        plugin.consent().clearPending(uuid);
+        Long sessionId = activeSessions.remove(uuid);
         if (sessionId != null) {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
                     plugin.storage().endSession(sessionId));

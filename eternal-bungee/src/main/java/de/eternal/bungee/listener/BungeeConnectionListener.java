@@ -76,8 +76,14 @@ public final class BungeeConnectionListener implements Listener {
         List<String> groups = cloudPerms.groupsOf(p.getUniqueId());
         String group = groups.isEmpty() ? p.getName() : groups.get(0);
 
-        ProxyServer.getInstance().getScheduler().runAsync(plugin, () ->
-                plugin.storage().recordProfile(p.getUniqueId(), p.getName(), addr, tier, group));
+        // GDPR gate — only persist the profile row once the player has
+        // accepted the privacy policy on the Spigot side. Before that
+        // we deliberately store nothing. On the next reconnect (after
+        // accept), this branch fires and we backfill the profile.
+        ProxyServer.getInstance().getScheduler().runAsync(plugin, () -> {
+            if (!plugin.storage().hasConsent(p.getUniqueId())) return;
+            plugin.storage().recordProfile(p.getUniqueId(), p.getName(), addr, tier, group);
+        });
     }
 
     @EventHandler

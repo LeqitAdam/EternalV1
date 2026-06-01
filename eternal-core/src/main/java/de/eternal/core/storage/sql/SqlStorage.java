@@ -242,6 +242,7 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
             migrateAddAppealDecisionMessage(c);
             migrateAddReportReplayId(c);
             createPermissionTables(c);
+            createConsentTable(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -1846,5 +1847,138 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
                 Instant.ofEpochMilli(rs.getLong("updated_at")),
                 rs.getString("updated_by")
         );
+    }
+
+    /* ====================================================================
+     * Consent (GDPR) — records that a player explicitly accepted our
+     * privacy policy on first join. NO row = haven't been asked yet or
+     * declined; row = accepted and we may persist their data.
+     * ==================================================================== */
+
+    /** Creates the {@code eternal_consent} table on first start. Idempotent.
+     *  We store the IP address alongside the consent timestamp because
+     *  GDPR audit log is also explicitly consented-to data — this row IS
+     *  the proof we have permission to store everything else. */
+    private void createConsentTable(@NotNull Connection c) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_consent (
+                      uuid VARCHAR(36) PRIMARY KEY,
+                      name VARCHAR(64) NOT NULL,
+                      accepted_at BIGINT NOT NULL,
+                      ip_address VARCHAR(64) NOT NULL
+                    )
+                    """);
+        }
+    }
+
+    /** Has this UUID accepted the privacy policy? Returns false for
+     *  unknown UUIDs (never asked) and for declined UUIDs (we purge
+     *  declined ones, so the table reads identically). */
+    public boolean hasConsent(@NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT 1 FROM eternal_consent WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("hasConsent failed", ex);
+        }
+    }
+
+    /** Records an explicit acceptance. Called from the in-game
+     *  {@code /eternal accept} handler — the rest of the data pipeline
+     *  is gated on this row existing. */
+    public void recordConsent(@NotNull UUID uuid, @NotNull String name, @NotNull String ip) {
+        boolean sqlite = isSqlite();
+        String sql = sqlite ? """
+                INSERT INTO eternal_consent (uuid, name, accepted_at, ip_address)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(uuid) DO UPDATE SET
+                  name=excluded.name, accepted_at=excluded.accepted_at, ip_address=excluded.ip_address
+                """ : """
+                INSERT INTO eternal_consent (uuid, name, accepted_at, ip_address)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  name=VALUES(name), accepted_at=VALUES(accepted_at), ip_address=VALUES(ip_address)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setString(2, name);
+            ps.setLong(3, System.currentTimeMillis());
+            ps.setString(4, ip);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("recordConsent failed", ex);
+        }
+    }
+
+    /**
+     * Purges every Eternal-side row that contains personal data for
+     * {@code uuid}. Called from the decline path. Returns the number
+     * of rows deleted across all tables (for logging).
+     *
+     * <p>What's purged:</p>
+     * <ul>
+     *     <li>{@code eternal_profiles} — IP, group, display name cache</li>
+     *     <li>{@code eternal_sessions} — web dashboard sessions</li>
+     *     <li>{@code eternal_login_sessions} — ingame login/logout log</li>
+     *     <li>{@code eternal_consent} — the consent row itself (no leak)</li>
+     *     <li>{@code eternal_link_codes} — pending account-link codes</li>
+     *     <li>{@code eternal_user_permissions} — per-user permission overrides</li>
+     * </ul>
+     *
+     * <p>What is <b>kept</b> (legitimate-interest basis, GDPR Art. 6 lit. f):</p>
+     * <ul>
+     *     <li>{@code eternal_punishments} — moderation history</li>
+     *     <li>{@code eternal_reports} — moderation history</li>
+     *     <li>{@code eternal_unban_appeals} — moderation history</li>
+     *     <li>Replay files — moderation evidence</li>
+     * </ul>
+     *
+     * <p>The moderation tables stay because allowing a banned user to
+     * wipe their ban by declining the privacy notice would defeat the
+     * purpose. We can defend that under Art. 6 (1) (f) — legitimate
+     * interest in operating the server safely.</p>
+     */
+    public int purgePersonalData(@NotNull UUID uuid) {
+        int total = 0;
+        String uuidStr = uuid.toString();
+        String[] tables = {
+                "eternal_profiles",
+                "eternal_sessions",
+                "eternal_login_sessions",
+                "eternal_consent",
+                "eternal_user_permissions"
+        };
+        String[] uuidColumns = {
+                "uuid", "user_uuid", "uuid", "uuid", "user_uuid"
+        };
+        try (Connection c = conn()) {
+            for (int i = 0; i < tables.length; i++) {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "DELETE FROM " + tables[i] + " WHERE " + uuidColumns[i] + " = ?")) {
+                    ps.setString(1, uuidStr);
+                    total += ps.executeUpdate();
+                } catch (SQLException ex) {
+                    // Table may not exist yet on very old DBs (user_permissions
+                    // is from the permission-engine PR). Log + keep going.
+                    System.err.println("[Eternal-purge] " + tables[i] + ": " + ex.getMessage());
+                }
+            }
+            // Link-codes get a separate clean-up because column name differs.
+            try (PreparedStatement ps = c.prepareStatement(
+                    "DELETE FROM eternal_link_codes WHERE confirmed_uuid = ?")) {
+                ps.setString(1, uuidStr);
+                total += ps.executeUpdate();
+            } catch (SQLException ex) {
+                System.err.println("[Eternal-purge] eternal_link_codes: " + ex.getMessage());
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("purgePersonalData failed", ex);
+        }
+        return total;
     }
 }

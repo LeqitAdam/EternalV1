@@ -121,6 +121,12 @@ public final class ContinuousRecorder {
         // so we always pass 0; the writer assigns proper indices when
         // assembling multi-player files).
         for (Player p : Bukkit.getOnlinePlayers()) {
+            // GDPR gate — players who haven't accepted the privacy
+            // policy yet wear an eternal_pending_consent scoreboard
+            // tag set by EternalSpigot's ConsentService. Skip them
+            // completely: no movement frames, no buffer entry, no
+            // trace in any subsequent report capture.
+            if (p.getScoreboardTags().contains("eternal_pending_consent")) continue;
             PlayerBuffer buf = bufferOf(p.getUniqueId(), p.getName());
             int rel = buf.currentRelativeMs();
             String mainHand = p.getInventory().getItemInMainHand().getType().getKey().toString();

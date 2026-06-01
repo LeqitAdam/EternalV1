@@ -28,7 +28,44 @@ usage-unmute: "{prefix}&7Nutzung: &f/unmute <Spieler> [Grund]"
 usage-report: "{prefix}&7Nutzung: &f/report <Spieler> [Grund-Nr] [Kommentar]"
 usage-lookup: "{prefix}&7Nutzung: &f/lookup <Spieler>"
 usage-history: "{prefix}&7Nutzung: &f/history <Spieler>"
-usage-eternal: "{prefix}&7Nutzung: &f/eternal <reload|link <code>>"
+usage-eternal: "{prefix}&7Nutzung: &f/eternal <reload|link <code>|accept|decline>"
+
+# --- Datenschutz-Zustimmung (GDPR) --------------------------------------
+# Wird beim ersten Join angezeigt. Bewusst lang & lesbar — der Spieler
+# muss vor der Akzeptanz wissen WAS gespeichert wird. Die Akzeptieren/
+# Ablehnen-Buttons baut der Connection-Listener als clickable
+# Komponenten zusätzlich darunter.
+consent-prompt: |-
+  &8&m─────────────────────────────────────
+  &dDatenschutz &8» &fEinmalige Zustimmung erforderlich
+  &7
+  &7Hallo &e{player}&7, willkommen auf dem Server!
+  &7Damit du spielen kannst, müssen wir folgende Daten verarbeiten:
+  &8 • &fSpielername + UUID  &8(für Strafen/Reports)
+  &8 • &fIP-Adresse          &8(für Multi-Account-Erkennung)
+  &8 • &fSpielzeit-Logs      &8(Login/Logout pro Sitzung)
+  &8 • &fChat-/Hit-/Replay-Aufzeichnungen bei Reports
+  &7
+  &7Die volle Datenschutzerklaerung findest du im Web unter:
+  &b  https://eternal.example/datenschutz
+  &7
+  &7Klicke unten zum Akzeptieren oder Ablehnen.
+  &7Bei Ablehnung wirst du gekickt &8(und alle bereits gespeicherten
+  &7Daten werden geloescht, inkl. deines CloudNet-Eintrags).
+  &8&m─────────────────────────────────────
+consent-accepted: "{prefix}&aDanke! Du kannst jetzt loslegen."
+consent-not-pending: "{prefix}&7Du hast bereits zugestimmt — nichts zu tun."
+consent-blocked-command: "{prefix}&cBitte zuerst &f/eternal accept &coder &f/eternal decline&c benutzen."
+consent-declined-kick: |-
+  &dEternal &8»
+
+  &7Du hast die Datenschutzbestimmungen &cabgelehnt&7.
+
+  &7Wir haben &calle Daten geloescht&7, die wir bereits ueber dich gespeichert
+  &7hatten (Profil, Login-Logs, CloudNet-Eintrag).
+
+  &7Falls du es dir doch anders ueberlegst, kannst du erneut joinen
+  &7und beim naechsten Mal akzeptieren.
 link-success: "{prefix}&aAccount mit dem Dashboard verknuepft."
 link-failed: "{prefix}&cCode unbekannt oder abgelaufen."
 link-api-disabled: "{prefix}&cDie REST-API ist nicht konfiguriert. Setze api.enabled=true in der config.yml."
