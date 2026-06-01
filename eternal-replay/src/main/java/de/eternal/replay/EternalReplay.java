@@ -31,7 +31,12 @@ public final class EternalReplay extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
         long retentionMs = Math.max(10_000L, getConfig().getLong("retention-seconds", 60) * 1000L);
-        int frameIntervalTicks = Math.max(1, getConfig().getInt("frame-interval-ticks", 4));
+        // Default 1 tick = 20 Hz, full server-tick resolution. Higher
+        // is physically impossible — Minecraft only updates position
+        // and friends once per tick. Operators on very busy servers
+        // can bump this to 2 (=10 Hz) or 4 (=5 Hz) to halve / quarter
+        // the RAM + disk cost per replay.
+        int frameIntervalTicks = Math.max(1, getConfig().getInt("frame-interval-ticks", 1));
         int invIntervalTicks = Math.max(20, getConfig().getInt("inventory-snapshot-ticks", 100));
         long maxFollowupMs = Math.max(60_000L, getConfig().getLong("max-followup-seconds", 600) * 1000L);
         String serverName = getConfig().getString("server-name", "lobby");

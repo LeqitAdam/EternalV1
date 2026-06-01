@@ -1,14 +1,18 @@
 # EternalReplay - standalone replay recording + playback.
 
 # Wie viele Sekunden vor einem captureWindow-Aufruf rueckwirkend
-# gespeichert werden. Pro Spieler ~150 Bytes pro Frame bei 5 Hz, also
-# bei 60s ~45 KB pro Online-Spieler im RAM.
+# gespeichert werden. Pro Spieler ~150 Bytes pro Frame, also bei 60s
+# und 20 Hz ~180 KB pro Online-Spieler im RAM (vor gzip).
 retention-seconds: 60
 
-# Wie oft pro Sekunde ein Bewegungs-Frame aufgenommen wird.
-#   4 ticks  = 5 Hz   (Default, ressourcenschonend)
-#   2 ticks  = 10 Hz  (smoother, ~doppelter RAM-Bedarf)
-frame-interval-ticks: 4
+# Wie viele Server-Ticks zwischen zwei Bewegungs-Frames liegen.
+# Der Minecraft-Server tickt mit 20 TPS — mehr Auflösung ist physisch
+# nicht möglich, weil Position/Yaw/Pitch/Item nur einmal pro Tick
+# aktualisiert werden.
+#   1 tick   = 20 Hz  (Default, jeder Tick — volle Auflösung)
+#   2 ticks  = 10 Hz  (halbe Auflösung, halber RAM)
+#   4 ticks  = 5 Hz   (Sparmodus für sehr volle Server)
+frame-interval-ticks: 1
 
 # Wie oft ein vollstaendiger Inventar-Snapshot gemacht wird.
 # 100 Ticks = alle 5 Sekunden.
