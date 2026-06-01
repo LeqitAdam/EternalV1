@@ -109,6 +109,7 @@ A few things worth pointing out:
 | `eternal-api`    | Standalone Javalin REST service — auth via Minecraft account link or API key, sessions, reports, appeals, action queue. |
 | `eternal-replay` | Standalone replay plugin — always-on recorder, persisted gzipped replay files, spectator-mode playback, ProtocolLib NPCs with skin replay. |
 | `eternal-web`    | Angular 17 dashboard — Material + Tailwind, dark theme, Eternal-pink accents. Player view + moderator view + admin view. |
+| `eternal-landing`| Angular 17 public sales / docs site — standalone build, DE+EN via ngx-translate, ready to host on the main domain.            |
 
 ## Quick start
 

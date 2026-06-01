@@ -1,0 +1,369 @@
+{
+  "header": {
+    "nav": {
+      "features": "Features",
+      "highlights": "Highlights",
+      "architecture": "Architecture",
+      "pricing": "Pricing",
+      "faq": "FAQ"
+    },
+    "loginCta": "Open dashboard",
+    "buyCta": "Buy now"
+  },
+  "hero": {
+    "eyebrow": "Moderation suite for Minecraft networks",
+    "title": "EternalSystem",
+    "tagline": "Bans, mutes, reports & video-style replays — one stack, one DB, one build.",
+    "description": "A complete moderation platform for CloudNet networks, built for server owners who want to give their staff the best tooling without juggling half a dozen plugins.",
+    "ctaPrimary": "Buy now",
+    "ctaSecondary": "See features",
+    "stats": {
+      "modules": "Modules",
+      "features": "Features",
+      "languages": "Languages"
+    }
+  },
+  "why": {
+    "title": "Why EternalSystem?",
+    "subtitle": "Because moderation shouldn't be spread across five different plugins.",
+    "cards": {
+      "allInOne": {
+        "title": "All-in-One",
+        "body": "Bans, mutes, reports, replays, web dashboard, permission management, GDPR compliance — one stack, one DB, one build."
+      },
+      "replay": {
+        "title": "Real replay system",
+        "body": "Staff watch the incident as a video — real player models, skins, animations. No live-TP, no guesswork."
+      },
+      "network": {
+        "title": "Network-ready",
+        "body": "Bungee + Spigot 1.19 with CloudNet V3 integration. Works standalone too — CloudNet is not required."
+      },
+      "gdpr": {
+        "title": "GDPR-compliant",
+        "body": "Privacy consent on first join, right-to-be-erased via admin panel, audit log on every moderation action."
+      }
+    }
+  },
+  "highlights": {
+    "title": "The flagship features",
+    "subtitle": "What sets EternalSystem apart from a classic ban plugin.",
+    "imagePlaceholder": "Screenshot coming",
+    "items": {
+      "replay": {
+        "title": "Video-style replay system",
+        "tag": "Flagship",
+        "body": "The recorder runs in the background, capturing 60 s of movement, hits, chat, block edits and inventory snapshots per player. When a mod accepts a report, they drop straight into the replay — spectator mode, ProtocolLib fake-players with real skins, hotbar controls for play/pause/seek/exit. Skins are stored inside the replay file, so the mod sees the offender exactly the way they looked at the time of the incident.",
+        "bullets": [
+          "5 Hz movement tracking + event-driven hits/chat/edits",
+          "Mojang-signed skin storage per replay (codec v2)",
+          "ProtocolLib fake-players with walking animations",
+          "Per-reason auto-cleanup (permanent ban = kept forever)"
+        ]
+      },
+      "reports": {
+        "title": "In-game GUI report system",
+        "tag": "Popular",
+        "body": "/report opens a chest inventory with configurable item icons per reason. Click → report goes out, recorder freezes the last 60 s, all staff get a cross-server notification. Mod accepts in the web → auto-login in-game + TP into the replay.",
+        "bullets": [
+          "GUI items configurable per reasons.yml (material + slot)",
+          "15 default reasons, fully extensible",
+          "Cross-server plugin-message bridge between Bungee + Spigot",
+          "Auto-close on ban, replay lifecycle with cross-linking"
+        ]
+      },
+      "dashboard": {
+        "title": "Angular web dashboard",
+        "tag": "Full mod toolkit",
+        "body": "Three roles: PLAYER, MOD, ADMIN. Players see their own punishments and can file appeals. Mods get the full reports/bans/mutes/player-lookup suite plus an active-session monitor. Material design, dark theme with Eternal-pink accents, fully responsive.",
+        "bullets": [
+          "Three role views out of one bundle",
+          "Live active-session monitor for admins",
+          "Shortening templates for unban appeals",
+          "Clickable player names with rank display across the app"
+        ]
+      },
+      "permissions": {
+        "title": "Granular permission engine",
+        "tag": "New",
+        "body": "Three-tier resolution: user override beats role setting beats hardcoded default. Every ban reason is grantable individually — you can give a mod the hacking ban but block the X-Ray ban. Web changes propagate back via the CloudNet API when present.",
+        "bullets": [
+          "User- and role-based permission tables",
+          "Reason-scoped keys (eternal.ban.reason.<id>)",
+          "Admin panel for live editing",
+          "Hardcoded defaults stay sensible without customisation"
+        ]
+      },
+      "gdpr": {
+        "title": "Privacy consent on first join",
+        "tag": "GDPR Art. 6",
+        "body": "New players see a prompt with clickable accept/decline buttons. Nothing is stored before they answer — no profile, no session, no replay buffer. Decline kicks + purges any data we already had, including the CloudNet user record.",
+        "bullets": [
+          "Movement / chat / build are blocked until they answer",
+          "Replay recorder skips non-consenting players",
+          "Decline deletes the CloudNet user via reflection (CN3 + CN4)",
+          "Audit trail in eternal_consent including IP address"
+        ]
+      },
+      "punishments": {
+        "title": "Bans, mutes & escalation ladder",
+        "tag": "Solid foundation",
+        "body": "Standard /ban + /mute with numeric reason IDs, tier protection (admin protected from mod), admin-only reasons, escalation ladder (1st / 2nd / 3rd offense = different durations), /modify for after-the-fact adjustments, /resethistory with audit log.",
+        "bullets": [
+          "DurationParser (1d / 6h / 30m / permanent)",
+          "Escalation ladder per reason configurable",
+          "Vanilla command override for /ban and /pardon",
+          "Clickable issuer names with rank display in history"
+        ]
+      }
+    }
+  },
+  "allFeatures": {
+    "title": "Complete feature list",
+    "subtitle": "Every button, every endpoint, every config knob.",
+    "categories": {
+      "punishments": {
+        "title": "Punishments",
+        "items": [
+          "/ban + /mute with numeric reason selection",
+          "/unban + /unmute with optional reason",
+          "/lookup shows active punishments, sessions, rank, IP",
+          "/history with DKBans-style detail cards per entry",
+          "/modify setduration + setreason (separate permissions)",
+          "/resethistory with soft-delete option and audit",
+          "Escalation ladder: 1st / 2nd / 3rd offense = longer automatically",
+          "Per-reason permission gates (eternal.ban.reason.<id>)",
+          "Admin-only flag for especially heavy reasons",
+          "Tier protection: same rank can't ban each other",
+          "Vanilla command override for /ban and /pardon",
+          "Full audit log: who, when, why, possibly modified"
+        ]
+      },
+      "reports": {
+        "title": "Report system",
+        "items": [
+          "/report <player> opens GUI with item icons",
+          "15 pre-configured report reasons (Hacking, Griefing, …)",
+          "GUI fully configurable (material + slot per reason)",
+          "Cooldown against report spam",
+          "Cross-server broadcast to all staff",
+          "Auto replay capture on report creation",
+          "Claim state (open, in progress, closed)",
+          "Auto-login in-game when accepted from the web",
+          "Auto-close on ban-from-report",
+          "Custom resolution notes on close",
+          "Public appeal endpoint for banned players"
+        ]
+      },
+      "replay": {
+        "title": "Replay system",
+        "items": [
+          "Continuous recorder at 5 Hz movement tracking",
+          "60 s ring buffer per player (configurable)",
+          "Event-driven hits, chat, block place/break, item use",
+          "Periodic inventory snapshots (every 5 s)",
+          "Gzipped binary format with versioning (currently v2)",
+          "Mojang-signed skins stored inside the file",
+          "ProtocolLib fake-players or ArmorStand fallback",
+          "Hotbar controls: play / pause / seek / exit / inventory",
+          "Cross-server sync: capture runs on the reportee's spigot",
+          "Empty-replay detection (target was offline too long)",
+          "/replay reports filters by report-replays",
+          "Permission-split: rewatch (mod) vs debug (admin)",
+          "Auto cleanup: deleted on close-without-ban or unban"
+        ]
+      },
+      "appeals": {
+        "title": "Unban appeals",
+        "items": [
+          "Appeal form in the dashboard for banned players",
+          "Public endpoint without login (for pure appeal players)",
+          "Admin inbox with approve / deny / shorten",
+          "Shortening templates (1h, 6h, 1d, 3d, 7d, …)",
+          "Auto-generated messages to the player",
+          "Status filter (open, approved, shortened, denied)",
+          "Cross-linking between appeal and original ban"
+        ]
+      },
+      "permissions": {
+        "title": "Permission engine",
+        "items": [
+          "Three-tier resolution (user → role → default)",
+          "CloudNet group → role mapping configurable",
+          "Per-reason ban permissions",
+          "Permission registry with ~15 stable keys",
+          "REST API for live editing",
+          "Web→MC sync optional via CloudNet API"
+        ]
+      },
+      "dashboard": {
+        "title": "Web dashboard",
+        "items": [
+          "Angular 17 standalone components",
+          "Material design + Tailwind",
+          "Dark theme with Eternal-pink accents",
+          "Three role views out of one bundle",
+          "MC-account link via web→in-game code",
+          "Active web-sessions overview for admins",
+          "Player lookup with autocomplete",
+          "Bans + mutes lists with filters",
+          "Reports inbox with status tabs",
+          "Player detail with full history",
+          "Stats page with mod activity aggregates"
+        ]
+      },
+      "gdpr": {
+        "title": "GDPR & privacy",
+        "items": [
+          "Privacy consent prompt on first join",
+          "Clickable accept / decline buttons",
+          "Movement/chat/build blocked until they answer",
+          "Replay recorder respects pending status",
+          "Decline purge incl. CloudNet user deletion",
+          "Right-to-be-erased: moderation history stays (Art. 6 (1) (f))",
+          "eternal_consent as audit evidence"
+        ]
+      },
+      "integration": {
+        "title": "Integration & tech",
+        "items": [
+          "MySQL or SQLite via HikariCP",
+          "Idempotent schema migrations",
+          "CloudNet V3 + V4 reflection bridge",
+          "ProtocolLib soft-dependency",
+          "Javalin 6 REST API",
+          "Bidirectional Bungee↔Spigot plugin messages",
+          "Internal action queue for web→in-game",
+          "Cross-server broadcast via Bungee hub",
+          "Soft-dependency fallbacks (no ProtocolLib / no CN)"
+        ]
+      },
+      "i18n": {
+        "title": "Localisation",
+        "items": [
+          "German + English pre-configured",
+          "All in-game text via translations/<lang>.yml",
+          "Web dashboard ngx-translate for live switching",
+          "Chat colour codes (&-style) fully translatable"
+        ]
+      }
+    }
+  },
+  "architecture": {
+    "title": "Architecture",
+    "subtitle": "Six Maven modules, one stack, one database.",
+    "modules": {
+      "core": {
+        "title": "eternal-core",
+        "body": "Shared models, storage layer, services. No Bukkit/Bungee dependency."
+      },
+      "spigot": {
+        "title": "eternal-spigot",
+        "body": "Bukkit plugin with in-game commands, listeners, report GUI, replay bridge."
+      },
+      "bungee": {
+        "title": "eternal-bungee",
+        "body": "BungeeCord plugin with proxy-level commands, kicks, cross-server broadcasts."
+      },
+      "api": {
+        "title": "eternal-api",
+        "body": "Javalin REST service. Auth via MC-account link or API key."
+      },
+      "replay": {
+        "title": "eternal-replay",
+        "body": "Standalone replay plugin. ProtocolLib NPCs, gzipped binary format."
+      },
+      "web": {
+        "title": "eternal-web",
+        "body": "Angular 17 dashboard. Material + Tailwind, three role views."
+      }
+    }
+  },
+  "pricing": {
+    "title": "Pricing",
+    "subtitle": "One license per server network.",
+    "comingSoonBadge": "Coming soon via Shopify",
+    "tiers": {
+      "starter": {
+        "title": "Starter",
+        "price": "—",
+        "frequency": "one-time",
+        "for": "For small networks up to 100 player slots",
+        "features": [
+          "All in-game plugins",
+          "REST API",
+          "Web dashboard",
+          "1 year of updates",
+          "Community support"
+        ],
+        "cta": "Available soon"
+      },
+      "pro": {
+        "title": "Pro",
+        "price": "—",
+        "frequency": "one-time",
+        "popular": "Most popular",
+        "for": "For mid-size networks up to 500 slots",
+        "features": [
+          "Everything from Starter",
+          "Permission engine web sync",
+          "Multi-spigot replay sync",
+          "2 years of updates",
+          "Priority Discord support"
+        ],
+        "cta": "Available soon"
+      },
+      "network": {
+        "title": "Network",
+        "price": "—",
+        "frequency": "one-time",
+        "for": "For large networks without slot limit",
+        "features": [
+          "Everything from Pro",
+          "Unlimited slots",
+          "Lifetime updates",
+          "Direct maintainer support",
+          "Custom branding possible"
+        ],
+        "cta": "Available soon"
+      }
+    },
+    "note": "Prices will be released with the Shopify launch. Subscribe to get notified at launch."
+  },
+  "faq": {
+    "title": "Frequent questions",
+    "items": [
+      {
+        "q": "Which Minecraft version is supported?",
+        "a": "Currently Spigot/Paper 1.19. Java 17 is required. A later version is on the roadmap, but 1.19 stays LTS-supported."
+      },
+      {
+        "q": "Do I need CloudNet?",
+        "a": "No. CloudNet is optional — when present, permissions and groups are auto-synced. Without it you assign eternal.* permissions manually."
+      },
+      {
+        "q": "Do I have to install ProtocolLib?",
+        "a": "Optional. With ProtocolLib you get real fake-player NPCs in replay with skin + walking animation. Without it, ArmorStands with player-head spawn as fallback."
+      },
+      {
+        "q": "Does it work on a single server?",
+        "a": "Yes. Both Spigot-standalone and Bungee+Spigot are supported. A few features (cross-server broadcasts, plugin-message bridge) need Bungee, but core moderation runs everywhere."
+      },
+      {
+        "q": "What about GDPR?",
+        "a": "We store personal data only after explicit consent on first join. Decline purges everything including the CloudNet entry. Moderation history is kept on the basis of Art. 6 (1) (f) legitimate interest."
+      },
+      {
+        "q": "Do I get updates?",
+        "a": "Yes. Update duration depends on the license tier — Starter 1 year, Pro 2 years, Network lifetime."
+      }
+    ]
+  },
+  "footer": {
+    "legal": "Legal",
+    "imprint": "Imprint",
+    "privacy": "Privacy",
+    "tagline": "EternalSystem — the complete moderation suite for Minecraft networks.",
+    "copyright": "© {{year}} EternalSystem. All rights reserved."
+  }
+}

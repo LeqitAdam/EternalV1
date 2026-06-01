@@ -19,6 +19,10 @@ eternal-web/node_modules/
 eternal-web/dist/
 eternal-web/.angular/
 eternal-web/coverage/
+eternal-landing/node_modules/
+eternal-landing/dist/
+eternal-landing/.angular/
+eternal-landing/coverage/
 
 # Runtime artefacts (local testing) — these are produced at first
 # plugin start from the JAR templates; the templates themselves live

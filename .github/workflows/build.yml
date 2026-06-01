@@ -72,6 +72,20 @@ jobs:
         working-directory: eternal-web
         run: npx ng build --configuration production
 
+      - name: Install landing-page dependencies
+        working-directory: eternal-landing
+        run: npm install
+
+      - name: Build landing page
+        working-directory: eternal-landing
+        run: npx ng build --configuration production
+
+      - name: Upload landing-page bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: eternal-landing-bundle
+          path: eternal-landing/dist/eternal-landing/browser
+
       - name: Upload dashboard bundle
         uses: actions/upload-artifact@v4
         with:
