@@ -52,6 +52,13 @@ $eternal-theme: mat.define-dark-theme((
 html, body { height: 100%; margin: 0; scroll-behavior: smooth; }
 body { font-family: 'Inter', system-ui, sans-serif; }
 
+/* Anchor reset — preflight is off, so without this every <a> falls
+   back to the browser's user-agent blue/purple. We want anchors to
+   inherit the surrounding text colour by default and rely on Tailwind
+   utility classes for explicit styling. Same for the visited/hover
+   pseudo-classes so the visited-link purple doesn't leak in either. */
+a, a:visited, a:hover, a:active { color: inherit; text-decoration: none; }
+
 /* Anchor offset so the sticky header doesn't cover section titles
    when the user clicks an anchor link. */
 section[id] { scroll-margin-top: 80px; }

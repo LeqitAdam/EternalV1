@@ -1,6 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
@@ -28,7 +27,7 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
 @Component({
   selector: 'et-landing',
   standalone: true,
-  imports: [CommonModule, MatButtonModule, MatIconModule, MatExpansionModule, TranslateModule],
+  imports: [CommonModule, MatIconModule, MatExpansionModule, TranslateModule],
   styles: [`
     :host { display: block; }
     /* Pink gradient backdrop for the hero. Sits behind the content so
@@ -58,18 +57,35 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
       font-size: .7rem; font-weight: 600; letter-spacing: .04em;
       text-transform: uppercase;
     }
-    .tag-flagship { background: rgba(255, 33, 197, .15); color: #ffb1ec; border: 1px solid rgba(255, 33, 197, .4); }
-    .tag-popular  { background: rgba(34, 197, 94, .15); color: #86efac; border: 1px solid rgba(34, 197, 94, .35); }
-    .tag-new      { background: rgba(56, 189, 248, .15); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, .35); }
-    .tag-default  { background: rgba(155, 155, 176, .12); color: #c7c7d4; border: 1px solid rgba(155, 155, 176, .25); }
-    /* Material accordion overrides — dashboard theme alignment. */
+    /* Pill colours — three warm variants + a neutral grey. Deliberately
+       no cyan/blue anywhere, the page reads as a pink-on-dark product. */
+    .tag-flagship { background: rgba(255, 33, 197, .18); color: #ffd8f5; border: 1px solid rgba(255, 33, 197, .45); }
+    .tag-popular  { background: rgba(74, 222, 128, .15); color: #bbf7d0; border: 1px solid rgba(74, 222, 128, .4); }
+    .tag-new      { background: rgba(251, 191, 36, .15); color: #fde68a; border: 1px solid rgba(251, 191, 36, .4); }
+    .tag-default  { background: rgba(199, 199, 212, .12); color: #e7e7ee; border: 1px solid rgba(199, 199, 212, .3); }
+    /* Material accordion overrides — keep every state on-brand so
+       Material's default light-blue/indigo focus ring + hover wash
+       never appears. */
     ::ng-deep .faq-panel .mat-expansion-panel {
       background: #1c1c25 !important; color: #e7e7ee !important;
       border: 1px solid #262633; border-radius: 12px !important;
       margin-bottom: .75rem !important;
     }
-    ::ng-deep .faq-panel .mat-expansion-panel-header-title { color: #e7e7ee; }
-    ::ng-deep .faq-panel .mat-expansion-indicator::after { color: #ff21c5; }
+    ::ng-deep .faq-panel .mat-expansion-panel-header-title { color: #e7e7ee; font-weight: 500; }
+    ::ng-deep .faq-panel .mat-expansion-indicator::after,
+    ::ng-deep .faq-panel .mat-expansion-indicator svg { color: #ff21c5 !important; fill: #ff21c5 !important; }
+    /* Hover wash + focus ring — pink instead of Material's default. */
+    ::ng-deep .faq-panel .mat-expansion-panel-header:hover:not([aria-disabled='true']) {
+      background: rgba(255, 33, 197, .08) !important;
+    }
+    ::ng-deep .faq-panel .mat-expansion-panel-header.cdk-keyboard-focused,
+    ::ng-deep .faq-panel .mat-expansion-panel-header.cdk-program-focused {
+      background: rgba(255, 33, 197, .12) !important;
+      outline: 2px solid #ff21c5 !important; outline-offset: -2px;
+    }
+    /* Icon-color overrides — Material can occasionally tint icons with
+       its primary palette; we lock everything to brand or ink-200. */
+    ::ng-deep .mat-icon { color: inherit; }
   `],
   template: `
     <!-- =========================================================== -->
@@ -148,10 +164,20 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
         <p class="text-xl md:text-2xl text-ink-100 mb-3 max-w-3xl mx-auto">{{ 'hero.tagline' | translate }}</p>
         <p class="text-base text-ink-300 mb-10 max-w-2xl mx-auto">{{ 'hero.description' | translate }}</p>
         <div class="flex flex-wrap gap-4 justify-center mb-12">
-          <a href="#pricing" mat-flat-button color="primary" class="!px-8 !py-6 !text-base">
+          <!-- Primary CTA — solid pink button. Tailwind only so the
+               colour stays locked to the brand palette. -->
+          <a href="#pricing"
+             class="inline-flex items-center gap-2 px-8 py-3.5 rounded-lg
+                    bg-eternal-500 hover:bg-eternal-400 text-white font-semibold text-base
+                    shadow-lg shadow-eternal-500/30 hover:shadow-eternal-500/50 transition">
             {{ 'hero.ctaPrimary' | translate }}
           </a>
-          <a href="#highlights" mat-stroked-button class="!px-8 !py-6 !text-base !text-white">
+          <!-- Secondary CTA — outlined pink. Same Tailwind treatment as
+               the navbar dashboard button for consistency. -->
+          <a href="#highlights"
+             class="inline-flex items-center gap-2 px-8 py-3.5 rounded-lg
+                    border border-eternal-500/60 text-eternal-200 font-semibold text-base
+                    hover:bg-eternal-500/15 hover:border-eternal-400 hover:text-white transition">
             {{ 'hero.ctaSecondary' | translate }}
           </a>
         </div>
@@ -223,10 +249,12 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
                    If the file exists the <img> renders; otherwise the
                    placeholder label below shows. -->
               <img *ngIf="hasImage(h)" [src]="'assets/landing/' + h + '.png'" [alt]="h" />
-              <div *ngIf="!hasImage(h)" class="text-center text-ink-400 px-6">
-                <mat-icon class="!text-5xl !w-12 !h-12 mb-2">image</mat-icon>
-                <div class="text-sm">{{ 'highlights.imagePlaceholder' | translate }}</div>
-                <code class="text-xs text-ink-500">assets/landing/{{ h }}.png</code>
+              <div *ngIf="!hasImage(h)" class="text-center text-ink-200 px-6">
+                <mat-icon class="!text-5xl !w-12 !h-12 mb-2 !text-eternal-400/70">image</mat-icon>
+                <div class="text-sm font-medium">{{ 'highlights.imagePlaceholder' | translate }}</div>
+                <!-- Slot-hint stays a bit dimmer (ink-300) but still
+                     above WCAG AA on the linear-gradient backdrop. -->
+                <code class="text-xs text-ink-300">assets/landing/{{ h }}.png</code>
               </div>
             </div>
           </div>
@@ -305,9 +333,13 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
               </li>
             </ul>
             <!-- Shopify-CTA: currently a placeholder; later this becomes
-                 an href to the Shopify product page for the tier. -->
+                 an href to the Shopify product page for the tier.
+                 Tailwind-only styling so no Material default-accent
+                 leaks through into the pricing card. -->
             <a [href]="shopifyUrl(tier)" target="_blank" rel="noopener"
-               mat-flat-button color="primary" class="!w-full">
+               class="block w-full text-center px-6 py-3 rounded-lg
+                      bg-eternal-500 hover:bg-eternal-400 text-white font-semibold
+                      shadow-md shadow-eternal-500/20 hover:shadow-eternal-500/40 transition">
               {{ 'pricing.tiers.' + tier + '.cta' | translate }}
             </a>
           </div>
@@ -353,7 +385,9 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
             <a href="#" class="hover:text-eternal-300">{{ 'footer.privacy' | translate }}</a>
           </nav>
         </div>
-        <div class="text-xs text-ink-400 mt-6">{{ 'footer.copyright' | translate: { year: currentYear } }}</div>
+        <!-- ink-300 instead of ink-400 so this still hits WCAG AA on
+             the section-bg-alt (#0f0f15) panel beneath. -->
+        <div class="text-xs text-ink-300 mt-6">{{ 'footer.copyright' | translate: { year: currentYear } }}</div>
       </div>
     </footer>
   `
