@@ -103,7 +103,7 @@ export class PlayersComponent {
 
   /** Suggestion picked via dropdown — go to that profile. */
   pick(s: Suggestion) {
-    this.router.navigate(['/players', s.name]);
+    this.router.navigate(['/dashboard/players',s.name]);
   }
 
   /** Submit pressed without dropdown selection. Routes by raw input, with
@@ -117,11 +117,11 @@ export class PlayersComponent {
       // Detail page expects a name slug; if it's a UUID, hit the search
       // API once to resolve, then navigate by the resulting name.
       this.api.searchPlayers(term).subscribe(list => {
-        if (list.length > 0) this.router.navigate(['/players', list[0].name]);
-        else this.router.navigate(['/players', term]);
+        if (list.length > 0) this.router.navigate(['/dashboard/players',list[0].name]);
+        else this.router.navigate(['/dashboard/players',term]);
       });
     } else {
-      this.router.navigate(['/players', term]);
+      this.router.navigate(['/dashboard/players',term]);
     }
   }
 }

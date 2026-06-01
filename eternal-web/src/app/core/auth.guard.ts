@@ -14,6 +14,9 @@ export const anonGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
   if (!auth.isAuthenticated()) return true;
-  router.navigateByUrl('/');
+  // Already logged in: skip the login page and drop them straight
+  // into the dashboard. The public landing page is at '/' and stays
+  // reachable from the header dashboard-button.
+  router.navigateByUrl('/dashboard');
   return false;
 };

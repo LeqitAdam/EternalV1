@@ -19,27 +19,27 @@ import { ApiService } from '../../core/api.service';
         </div>
 
         <nav class="flex-1 p-3 space-y-1">
-          <a routerLink="/me" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+          <a routerLink="/dashboard/me" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
             <mat-icon>person</mat-icon><span>Mein Konto</span>
           </a>
           <ng-container *ngIf="isStaff()">
-            <a routerLink="/dashboard" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <a routerLink="/dashboard/dashboard" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>dashboard</mat-icon><span>Übersicht</span>
             </a>
-            <a routerLink="/reports" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <a routerLink="/dashboard/reports" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>report</mat-icon><span>Reports</span>
             </a>
-            <a routerLink="/bans" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <a routerLink="/dashboard/bans" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>gavel</mat-icon><span>Aktive Bans</span>
             </a>
-            <a routerLink="/players" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <a routerLink="/dashboard/players" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>person_search</mat-icon><span>Spieler</span>
             </a>
-            <a routerLink="/appeals" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <a routerLink="/dashboard/appeals" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>contact_support</mat-icon><span>Entbannungsanträge</span>
             </a>
             <!-- Admin-only: shows who is currently logged in to the dashboard. -->
-            <a *ngIf="isAdmin()" routerLink="/active-users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <a *ngIf="isAdmin()" routerLink="/dashboard/active-users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>groups</mat-icon><span>Aktive User</span>
             </a>
           </ng-container>

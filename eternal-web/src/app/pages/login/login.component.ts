@@ -130,7 +130,7 @@ export class LoginComponent implements OnDestroy {
           if (status.status === 'CONFIRMED' && status.sessionToken && status.user) {
             this.poll?.unsubscribe();
             this.auth.loginWith(status.sessionToken, status.user);
-            this.router.navigateByUrl('/');
+            this.router.navigateByUrl('/dashboard');
           } else if (status.status === 'EXPIRED') {
             this.poll?.unsubscribe();
             this.error.set('Code abgelaufen — bitte einen neuen generieren.');
@@ -159,7 +159,7 @@ export class LoginComponent implements OnDestroy {
     this.api.me().subscribe({
       next: me => {
         this.auth.loginWith(this.apiKey, me);
-        this.router.navigateByUrl('/');
+        this.router.navigateByUrl('/dashboard');
       },
       error: () => {
         this.auth.logout(); // clears the trial token

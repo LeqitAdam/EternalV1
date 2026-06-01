@@ -41,7 +41,7 @@ type HistoryRow = {
   standalone: true,
   imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, RouterLink, LegacyTextPipe],
   template: `
-    <button mat-stroked-button routerLink="/players" class="mb-4">
+    <button mat-stroked-button routerLink="/dashboard/players" class="mb-4">
       <mat-icon>arrow_back</mat-icon> Zur Suche
     </button>
 
