@@ -42,6 +42,16 @@ import { ApiService } from '../../core/api.service';
             <a *ngIf="isAdmin()" routerLink="/active-users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>groups</mat-icon><span>Aktive User</span>
             </a>
+            <!-- Admin section divider + permission / user management. -->
+            <ng-container *ngIf="isAdmin()">
+              <div class="px-3 pt-4 pb-1 text-xs uppercase tracking-wide text-ink-400">Administration</div>
+              <a routerLink="/admin/users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+                <mat-icon>manage_accounts</mat-icon><span>Benutzer &amp; Ränge</span>
+              </a>
+              <a routerLink="/admin/permissions" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+                <mat-icon>security</mat-icon><span>Rollen &amp; Rechte</span>
+              </a>
+            </ng-container>
           </ng-container>
         </nav>
 

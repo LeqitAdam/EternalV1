@@ -36,6 +36,13 @@ public interface EternalStorage extends AutoCloseable {
         recordProfile(uuid, name, address, lastTier, lastGroupName, "");
     }
 
+    /** Updates ONLY the cached group name on an existing profile row,
+     *  without touching name/address/tier/displayName. Used after a
+     *  web-driven CloudNet group change so the dashboard's role
+     *  resolution + lookup reflect the new rank before the player
+     *  rejoins. No-op when the profile doesn't exist yet. */
+    void updateProfileGroup(@NotNull UUID uuid, @NotNull String groupName);
+
     @NotNull Optional<PlayerProfile> findProfile(@NotNull UUID uuid);
 
     @NotNull Optional<PlayerProfile> findProfileByName(@NotNull String name);
@@ -176,6 +183,13 @@ public interface EternalStorage extends AutoCloseable {
     long queueAction(@NotNull String type, @NotNull UUID targetStaff, @NotNull String payload);
 
     @NotNull List<ActionEntry> pendingActionsFor(@NotNull UUID targetStaff);
+
+    /** All un-consumed actions of one {@code type}, regardless of which
+     *  target UUID they carry. Used by the Bungee-side admin poller for
+     *  actions that aren't bound to an online player — e.g. changing an
+     *  OFFLINE player's CloudNet group, which any node with driver access
+     *  can apply centrally. */
+    @NotNull List<ActionEntry> pendingActionsByType(@NotNull String type);
 
     boolean consumeAction(long id);
 

@@ -91,6 +91,11 @@ public final class Routes {
         app.get("/admin/users/{uuid}/permissions", this::listUserPermissions);
         app.put("/admin/users/{uuid}/permissions/{key}", this::setUserPermission);
         app.delete("/admin/users/{uuid}/permissions/{key}", this::clearUserPermission);
+        // User administration — search ALL known players (offline incl.),
+        // view a single one, change their CloudNet rank.
+        app.get("/admin/users", this::adminListUsers);
+        app.get("/admin/users/{uuid}", this::adminGetUser);
+        app.put("/admin/users/{uuid}/group", this::changeUserGroup);
     }
 
     /**
@@ -1074,5 +1079,98 @@ public final class Routes {
      *  the Main bootstrap, so the cast is safe at runtime. */
     private de.eternal.core.permission.@NotNull PermissionStorage permStorage() {
         return (de.eternal.core.permission.PermissionStorage) storage;
+    }
+
+    /* =====================================================================
+     * User administration — search/list players (offline incl.), inspect
+     * one, change CloudNet rank. All gated by eternal.web.admin.
+     * ===================================================================== */
+
+    /** GET /admin/users?q=<prefix> — search by name/uuid prefix, or the
+     *  most-recently-seen players when q is empty. Returns enough per
+     *  row for the admin list: uuid, name, displayName, group, tier,
+     *  lastSeen, plus the resolved web-role (via group → role mapping). */
+    private void adminListUsers(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        String q = ctx.queryParam("q");
+        int limit = parseIntOr(ctx.queryParam("limit"), 30);
+        java.util.List<de.eternal.core.model.PlayerProfile> profiles;
+        if (storage instanceof de.eternal.core.storage.sql.SqlStorage sql) {
+            profiles = (q == null || q.trim().length() < 2)
+                    ? sql.recentProfiles(limit)
+                    : sql.searchProfiles(q.trim(), limit);
+        } else {
+            profiles = java.util.List.of();
+        }
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>(profiles.size());
+        for (var p : profiles) out.add(userRow(p));
+        ctx.json(Map.of("users", out));
+    }
+
+    /** GET /admin/users/{uuid} — single player's admin view: profile +
+     *  resolved role + the user's permission overrides in one payload. */
+    private void adminGetUser(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        UUID uuid;
+        try { uuid = UUID.fromString(ctx.pathParam("uuid")); }
+        catch (IllegalArgumentException ex) { throw new BadRequestResponse("invalid uuid"); }
+        var profile = storage.findProfile(uuid).orElseThrow(NotFoundResponse::new);
+
+        java.util.List<Map<String, Object>> overrides = new java.util.ArrayList<>();
+        for (var g : permStorage().userPermissions(uuid).values()) {
+            overrides.add(Map.of(
+                    "key", g.permissionKey(),
+                    "granted", g.granted(),
+                    "updatedAt", g.updatedAt().toEpochMilli(),
+                    "updatedBy", g.updatedBy() == null ? "" : g.updatedBy()));
+        }
+        ctx.json(Map.of("user", userRow(profile), "overrides", overrides));
+    }
+
+    /** PUT /admin/users/{uuid}/group  body {group, op?}. Queues a
+     *  CLOUDNET_GROUP action the Bungee AdminActionPoller applies
+     *  (works for offline players). op = SET (default) | ADD | REMOVE. */
+    @SuppressWarnings("unchecked")
+    private void changeUserGroup(@NotNull Context ctx) {
+        var caller = auth.requirePermission(ctx, "eternal.web.admin");
+        UUID uuid;
+        try { uuid = UUID.fromString(ctx.pathParam("uuid")); }
+        catch (IllegalArgumentException ex) { throw new BadRequestResponse("invalid uuid"); }
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        if (body == null || body.get("group") == null) throw new BadRequestResponse("group required");
+        String group = String.valueOf(body.get("group")).trim();
+        if (group.isEmpty()) throw new BadRequestResponse("group must not be empty");
+        String op = String.valueOf(body.getOrDefault("op", "SET")).toUpperCase();
+        if (!op.equals("SET") && !op.equals("ADD") && !op.equals("REMOVE")) {
+            throw new BadRequestResponse("op must be SET, ADD or REMOVE");
+        }
+        // Queue against the TARGET uuid (the player whose rank changes).
+        // The Bungee poller pulls CLOUDNET_GROUP by-type, so the target
+        // doesn't need to be online.
+        storage.queueAction("CLOUDNET_GROUP", uuid, Json.GSON.toJson(Map.of(
+                "uuid", uuid.toString(),
+                "group", group,
+                "op", op,
+                "by", caller.name())));
+        ctx.json(Map.of("ok", true, "queued", true, "op", op, "group", group));
+    }
+
+    /** Shared row-builder for the admin user views. Resolves the
+     *  web-role from the cached CloudNet group via the role mapping. */
+    private @NotNull Map<String, Object> userRow(@NotNull de.eternal.core.model.PlayerProfile p) {
+        String resolvedRole = "";
+        if (p.lastGroupName() != null && !p.lastGroupName().isEmpty()) {
+            resolvedRole = permStorage().findRoleByMcGroup(p.lastGroupName())
+                    .map(de.eternal.core.model.Role::name).orElse("");
+        }
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("uuid", p.uuid().toString());
+        m.put("name", p.name());
+        m.put("lastDisplayName", p.lastDisplayName() == null ? "" : p.lastDisplayName());
+        m.put("groupName", p.lastGroupName() == null ? "" : p.lastGroupName());
+        m.put("tier", p.lastTier());
+        m.put("lastSeen", p.lastSeen() == null ? 0L : p.lastSeen().toEpochMilli());
+        m.put("resolvedRole", resolvedRole);
+        return m;
     }
 }

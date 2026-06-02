@@ -288,6 +288,19 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
         }
     }
 
+    @Override
+    public void updateProfileGroup(@NotNull UUID uuid, @NotNull String groupName) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_profiles SET last_group_name = ? WHERE uuid = ?")) {
+            ps.setString(1, groupName);
+            ps.setString(2, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("updateProfileGroup failed", ex);
+        }
+    }
+
     /** Idempotent ALTER for legacy DBs that pre-date tier tracking. */
     private void migrateAddLastTier(@NotNull Connection c) throws SQLException {
         try (Statement st = c.createStatement()) {
@@ -1308,6 +1321,34 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
     }
 
     @Override
+    public @NotNull List<ActionEntry> pendingActionsByType(@NotNull String type) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_actions WHERE type = ? AND consumed_at IS NULL "
+                             + "ORDER BY created_at ASC")) {
+            ps.setString(1, type);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ActionEntry> out = new ArrayList<>();
+                while (rs.next()) {
+                    long consumed = rs.getLong("consumed_at");
+                    boolean consumedNull = rs.wasNull();
+                    out.add(new ActionEntry(
+                            rs.getLong("id"),
+                            rs.getString("type"),
+                            UUID.fromString(rs.getString("target_staff_uuid")),
+                            rs.getString("payload"),
+                            Instant.ofEpochMilli(rs.getLong("created_at")),
+                            consumedNull ? null : Instant.ofEpochMilli(consumed)
+                    ));
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("pendingActionsByType failed", ex);
+        }
+    }
+
+    @Override
     public boolean consumeAction(long id) {
         try (Connection c = conn();
              PreparedStatement ps = c.prepareStatement(
@@ -1462,6 +1503,24 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
      * auto-complete; matches the start of {@code name} (case-insensitive)
      * and the start of the UUID string. Capped to {@code limit}.
      */
+    /** Most-recently-seen profiles, no query filter. Powers the admin
+     *  user-management list when the search box is empty so the admin
+     *  sees something to act on immediately. */
+    public @NotNull List<de.eternal.core.model.PlayerProfile> recentProfiles(int limit) {
+        String sql = "SELECT uuid, name, first_seen, last_seen, last_address, last_tier, last_group_name, last_display_name "
+                + "FROM eternal_profiles ORDER BY last_seen DESC LIMIT ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, Math.max(1, Math.min(100, limit)));
+            try (ResultSet rs = ps.executeQuery()) {
+                List<de.eternal.core.model.PlayerProfile> out = new ArrayList<>();
+                while (rs.next()) out.add(readProfile(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("recentProfiles failed", ex);
+        }
+    }
+
     public @NotNull List<de.eternal.core.model.PlayerProfile> searchProfiles(@NotNull String query, int limit) {
         if (query.isBlank()) return List.of();
         String like = query.toLowerCase(java.util.Locale.ROOT) + "%";

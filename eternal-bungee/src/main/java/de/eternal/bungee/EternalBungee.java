@@ -48,6 +48,7 @@ public final class EternalBungee extends Plugin {
     private ApiBridge apiBridge;
     private de.eternal.core.integration.CloudPermsAccess cloudPerms;
     private de.eternal.bungee.listener.CloudNetBridgeListener cloudNetBridge;
+    private de.eternal.bungee.api.AdminActionPoller adminActionPoller;
 
     @Override
     public void onEnable() {
@@ -63,6 +64,10 @@ public final class EternalBungee extends Plugin {
             // fanout to every notify-permission player on the proxy.
             getProxy().getPluginManager().registerListener(this,
                     new de.eternal.bungee.listener.StaffBroadcastListener(this));
+            // Admin-action poller: applies web-driven CloudNet group
+            // changes (works for offline players — CN store is central).
+            this.adminActionPoller = new de.eternal.bungee.api.AdminActionPoller(this);
+            this.adminActionPoller.start();
             getLogger().info("Eternal aktiv (storage=" + coreConfig.database().type() + ").");
         } catch (Exception ex) {
             getLogger().severe("Eternal konnte nicht starten: " + ex.getMessage());
@@ -72,6 +77,7 @@ public final class EternalBungee extends Plugin {
 
     @Override
     public void onDisable() {
+        if (adminActionPoller != null) adminActionPoller.stop();
         if (storage != null) {
             try { storage.close(); } catch (Exception ignored) {}
         }
@@ -222,4 +228,5 @@ public final class EternalBungee extends Plugin {
     public @NotNull BungeeMessages messages() { return messages; }
     public @NotNull OnlineStaffRegistry staff() { return staff; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }
+    public @NotNull de.eternal.core.integration.CloudPermsAccess cloudPerms() { return cloudPerms; }
 }

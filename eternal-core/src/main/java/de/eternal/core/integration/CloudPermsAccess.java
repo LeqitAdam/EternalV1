@@ -98,6 +98,128 @@ public final class CloudPermsAccess {
         return 0;
     }
 
+    /**
+     * Adds {@code group} to the CloudNet permission user. Works for
+     * offline players too — CloudNet's permission store is central, not
+     * per-server. Returns true on success.
+     *
+     * <p>Flow (reflective, CN3 + CN4): resolve the PermissionUser,
+     * call {@code addGroup(String)} on it, then {@code updateUser(user)}
+     * to persist. Both versions share this shape; we tolerate the
+     * method-name drift the same way the read path does.</p>
+     */
+    public boolean addUserGroup(@NotNull UUID uuid, @NotNull String group) {
+        return mutateUserGroups(uuid, "addGroup", group);
+    }
+
+    /** Removes {@code group} from the CloudNet permission user. */
+    public boolean removeUserGroup(@NotNull UUID uuid, @NotNull String group) {
+        return mutateUserGroups(uuid, "removeGroup", group);
+    }
+
+    /**
+     * "Change rank" in the intuitive sense: drop every group the user is
+     * currently in and put them into exactly {@code group}. Implemented
+     * as removeGroup(each existing) + addGroup(group) on a single user
+     * object, then one updateUser. Returns true when the update was
+     * pushed (even if the user was already only in that group).
+     */
+    public boolean setPrimaryGroup(@NotNull UUID uuid, @NotNull String group) {
+        if (!available()) return false;
+        try {
+            Object user = userMethod.invoke(management, uuid);
+            if (user == null) {
+                logger.warning("setPrimaryGroup: CloudNet has no user row for " + uuid);
+                return false;
+            }
+            // Current groups → remove all, then add the new one.
+            Object groupsRaw = groupNamesMethod.invoke(user);
+            Method removeGroup = findMethod(user.getClass(), "removeGroup", String.class);
+            Method addGroup = findMethod(user.getClass(), "addGroup", String.class);
+            if (removeGroup == null || addGroup == null) {
+                logger.warning("setPrimaryGroup: PermissionUser lacks add/removeGroup methods");
+                return false;
+            }
+            if (groupsRaw instanceof java.util.Collection<?> col) {
+                for (Object g : new java.util.ArrayList<>(col)) {
+                    if (!String.valueOf(g).equalsIgnoreCase(group)) {
+                        removeGroup.invoke(user, String.valueOf(g));
+                    }
+                }
+            }
+            addGroup.invoke(user, group);
+            return pushUserUpdate(user);
+        } catch (Throwable t) {
+            logger.warning("setPrimaryGroup failed for " + uuid + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Shared add/remove helper. {@code op} is "addGroup" or
+     *  "removeGroup". Resolves the user, invokes the op, pushes the
+     *  update back. */
+    private boolean mutateUserGroups(@NotNull UUID uuid, @NotNull String op, @NotNull String group) {
+        if (!available()) return false;
+        try {
+            Object user = userMethod.invoke(management, uuid);
+            if (user == null) {
+                logger.warning(op + ": CloudNet has no user row for " + uuid);
+                return false;
+            }
+            Method m = findMethod(user.getClass(), op, String.class);
+            if (m == null) {
+                logger.warning(op + ": PermissionUser has no " + op + "(String) method");
+                return false;
+            }
+            m.invoke(user, group);
+            return pushUserUpdate(user);
+        } catch (Throwable t) {
+            logger.warning(op + " failed for " + uuid + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Persists a modified PermissionUser back to CloudNet. CN3 + CN4
+     *  both expose {@code updateUser(user)}; CN4 also has an async
+     *  variant we don't need. */
+    private boolean pushUserUpdate(@NotNull Object user) {
+        for (String mname : new String[]{"updateUser", "updatePermissionUser"}) {
+            try {
+                Method m = management.getClass().getMethod(mname, user.getClass().getInterfaces().length > 0
+                        ? user.getClass().getInterfaces()[0] : user.getClass());
+                m.invoke(management, user);
+                return true;
+            } catch (NoSuchMethodException ignored) {
+                // Fall through to the param-scan variant below.
+            } catch (Throwable t) {
+                logger.warning("pushUserUpdate via " + mname + " failed: " + t.getMessage());
+                return false;
+            }
+        }
+        // Last resort: scan for any single-arg method named updateUser
+        // whose parameter the user is assignable to (covers interface
+        // vs impl-class mismatches across CN versions).
+        for (Method m : management.getClass().getMethods()) {
+            if (!m.getName().equals("updateUser") || m.getParameterCount() != 1) continue;
+            if (!m.getParameterTypes()[0].isInstance(user)) continue;
+            try {
+                m.invoke(management, user);
+                return true;
+            } catch (Throwable t) {
+                logger.warning("pushUserUpdate scan failed: " + t.getMessage());
+                return false;
+            }
+        }
+        logger.warning("pushUserUpdate: no updateUser method matched the user type");
+        return false;
+    }
+
+    private static @org.jetbrains.annotations.Nullable Method findMethod(
+            @NotNull Class<?> type, @NotNull String name, @NotNull Class<?>... params) {
+        try { return type.getMethod(name, params); }
+        catch (NoSuchMethodException ex) { return null; }
+    }
+
     public @NotNull List<String> groupsOf(@NotNull UUID uuid) {
         if (!available()) return Collections.emptyList();
         try {

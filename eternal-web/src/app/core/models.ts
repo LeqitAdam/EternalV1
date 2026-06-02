@@ -119,3 +119,49 @@ export interface LinkStatus {
   user?: { uuid: string; name: string; role: 'ADMIN' | 'MOD' };
   expiresAt?: number;
 }
+
+/* --- Permission engine (admin) ------------------------------------- */
+
+/** One entry from /admin/permissions/registry — a known permission key
+ *  with its UI metadata and hardcoded default policy. */
+export interface PermissionRegistryEntry {
+  key: string;
+  label: string;
+  description: string;
+  defaultGrant: 'NEVER' | 'ADMIN_ONLY' | 'STAFF_ANY' | 'EVERYONE';
+}
+
+/** Registry grouped by category, as returned by the API. */
+export interface PermissionRegistry {
+  categories: Record<string, PermissionRegistryEntry[]>;
+}
+
+/** A single grant row (role- or user-scoped). */
+export interface PermissionGrant {
+  key: string;
+  granted: boolean;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+/** A web role with its embedded permission grants. Mirrors the
+ *  /admin/roles response rows. */
+export interface Role {
+  name: string;
+  displayName: string;
+  mcGroupName: string;
+  sortOrder: number;
+  color: string;
+  permissions: PermissionGrant[];
+}
+
+/** One row in the admin user-management list. */
+export interface AdminUser {
+  uuid: string;
+  name: string;
+  lastDisplayName: string;
+  groupName: string;
+  tier: number;
+  lastSeen: number;
+  resolvedRole: string;
+}
