@@ -43,6 +43,26 @@ public interface EternalStorage extends AutoCloseable {
      *  rejoins. No-op when the profile doesn't exist yet. */
     void updateProfileGroup(@NotNull UUID uuid, @NotNull String groupName);
 
+    /** Caches the FULL set of CloudNet groups a player is in (not just
+     *  the primary). Comma-joined in one column. Powers the admin UI's
+     *  "which ranks does this user already have" view so add/remove
+     *  doesn't double up. */
+    void updateProfileGroups(@NotNull UUID uuid, @NotNull List<String> groups);
+
+    /** The cached full group list for a player, or empty when we've
+     *  never seen them on the new recorder. Falls back to the primary
+     *  {@code lastGroupName} at the call site. */
+    @NotNull List<String> profileGroups(@NotNull UUID uuid);
+
+    /** Replaces the cached list of all CloudNet groups in the system.
+     *  Synced periodically by the Bungee admin poller (the only node
+     *  with guaranteed driver access). Each entry is (name, sortId). */
+    void replaceCloudGroups(@NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> groups);
+
+    /** The cached available-group list for the dashboard, newest sync,
+     *  highest sortId first. */
+    @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> listCloudGroups();
+
     @NotNull Optional<PlayerProfile> findProfile(@NotNull UUID uuid);
 
     @NotNull Optional<PlayerProfile> findProfileByName(@NotNull String name);

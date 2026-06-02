@@ -243,6 +243,8 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
             migrateAddReportReplayId(c);
             createPermissionTables(c);
             createConsentTable(c);
+            createCloudGroupsTable(c);
+            migrateAddProfileGroups(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -299,6 +301,102 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
         } catch (SQLException ex) {
             throw new StorageException("updateProfileGroup failed", ex);
         }
+    }
+
+    @Override
+    public void updateProfileGroups(@NotNull UUID uuid, @NotNull List<String> groups) {
+        // Comma-join. Group names never contain commas in CloudNet, so a
+        // plain join is safe and keeps the column human-readable.
+        String joined = String.join(",", groups);
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_profiles SET last_groups = ? WHERE uuid = ?")) {
+            ps.setString(1, joined);
+            ps.setString(2, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] updateProfileGroups failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public @NotNull List<String> profileGroups(@NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT last_groups FROM eternal_profiles WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return List.of();
+                String joined = rs.getString("last_groups");
+                if (joined == null || joined.isBlank()) return List.of();
+                return java.util.Arrays.stream(joined.split(","))
+                        .map(String::trim).filter(s -> !s.isEmpty()).toList();
+            }
+        } catch (SQLException ex) {
+            // Column may not exist on a half-migrated DB — treat as empty.
+            return List.of();
+        }
+    }
+
+    @Override
+    public void replaceCloudGroups(
+            @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> groups) {
+        long now = System.currentTimeMillis();
+        try (Connection c = conn()) {
+            // Full replace: clear then insert. Group set is small (dozens),
+            // so a truncate+insert is simpler than a diff and keeps the
+            // table exactly in sync with CloudNet each cycle.
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM eternal_cloud_groups");
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO eternal_cloud_groups (name, sort_id, synced_at) VALUES (?, ?, ?)")) {
+                for (var g : groups) {
+                    ps.setString(1, g.name());
+                    ps.setInt(2, g.sortId());
+                    ps.setLong(3, now);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] replaceCloudGroups failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> listCloudGroups() {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT name, sort_id FROM eternal_cloud_groups ORDER BY sort_id DESC, name ASC");
+             ResultSet rs = ps.executeQuery()) {
+            List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> out = new ArrayList<>();
+            while (rs.next()) {
+                out.add(new de.eternal.core.integration.CloudPermsAccess.GroupInfo(
+                        rs.getString("name"), rs.getInt("sort_id")));
+            }
+            return out;
+        } catch (SQLException ex) {
+            return List.of();
+        }
+    }
+
+    private void createCloudGroupsTable(@NotNull Connection c) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_cloud_groups (
+                      name VARCHAR(64) PRIMARY KEY,
+                      sort_id INTEGER NOT NULL DEFAULT 0,
+                      synced_at BIGINT NOT NULL
+                    )
+                    """);
+        }
+    }
+
+    private void migrateAddProfileGroups(@NotNull Connection c) {
+        runIdempotent(c, isSqlite()
+                ? "ALTER TABLE eternal_profiles ADD COLUMN last_groups TEXT NOT NULL DEFAULT ''"
+                : "ALTER TABLE eternal_profiles ADD COLUMN last_groups TEXT");
     }
 
     /** Idempotent ALTER for legacy DBs that pre-date tier tracking. */

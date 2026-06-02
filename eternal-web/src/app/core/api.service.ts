@@ -172,9 +172,13 @@ export class ApiService {
     const qs = q && q.trim().length >= 2 ? `?q=${encodeURIComponent(q.trim())}` : '';
     return this.http.get<{ users: AdminUser[] }>(this.url('/admin/users' + qs));
   }
-  adminGetUser(uuid: string): Observable<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }> }> {
-    return this.http.get<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }> }>(
+  adminGetUser(uuid: string): Observable<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }>; groups: string[] }> {
+    return this.http.get<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }>; groups: string[] }>(
       this.url(`/admin/users/${uuid}`));
+  }
+  /** Synced CloudNet group catalogue (name + sortId, highest first). */
+  adminCloudGroups(): Observable<{ groups: Array<{ name: string; sortId: number }> }> {
+    return this.http.get<{ groups: Array<{ name: string; sortId: number }> }>(this.url('/admin/cloud-groups'));
   }
   setUserPermission(uuid: string, key: string, granted: boolean) {
     return this.http.put<{ ok: boolean }>(

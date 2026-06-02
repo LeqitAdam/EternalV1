@@ -100,6 +100,10 @@ public final class ConnectionListener implements Listener {
 
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             plugin.storage().recordProfile(p.getUniqueId(), p.getName(), addr, tier, group, displayName);
+            // Cache the FULL group set too (recordProfile only stores the
+            // primary) so the admin dashboard's "already has / can add"
+            // rank view is accurate without waiting for a rank change.
+            if (!groups.isEmpty()) plugin.storage().updateProfileGroups(p.getUniqueId(), groups);
             long sessionId = plugin.storage().startSession(p.getUniqueId(), p.getName(), addr);
             // Re-capture display 40 ticks (~2s) later so deferred chat-plugin
             // formatters can finish before we lock in the cached value.

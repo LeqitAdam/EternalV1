@@ -96,6 +96,7 @@ public final class Routes {
         app.get("/admin/users", this::adminListUsers);
         app.get("/admin/users/{uuid}", this::adminGetUser);
         app.put("/admin/users/{uuid}/group", this::changeUserGroup);
+        app.get("/admin/cloud-groups", this::listCloudGroups);
     }
 
     /**
@@ -1011,6 +1012,7 @@ public final class Routes {
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         boolean granted = body != null && Boolean.TRUE.equals(body.get("granted"));
         permStorage().setRolePermission(role, key, granted, caller.name());
+        queueRolePermRefresh(role);
         ctx.json(Map.of("ok", true));
     }
 
@@ -1019,6 +1021,7 @@ public final class Routes {
         String role = ctx.pathParam("name");
         String key = ctx.pathParam("key");
         boolean removed = permStorage().clearRolePermission(role, key);
+        queueRolePermRefresh(role);
         ctx.json(Map.of("ok", true, "cleared", removed));
     }
 
@@ -1061,6 +1064,7 @@ public final class Routes {
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         boolean granted = body != null && Boolean.TRUE.equals(body.get("granted"));
         permStorage().setUserPermission(uuid, key, granted, caller.name());
+        queueUserPermRefresh(uuid);
         ctx.json(Map.of("ok", true));
     }
 
@@ -1071,7 +1075,28 @@ public final class Routes {
         catch (IllegalArgumentException ex) { throw new BadRequestResponse("invalid uuid"); }
         String key = ctx.pathParam("key");
         boolean removed = permStorage().clearUserPermission(uuid, key);
+        queueUserPermRefresh(uuid);
         ctx.json(Map.of("ok", true, "cleared", removed));
+    }
+
+    /* --- live-sync helpers --------------------------------------------- */
+
+    /** Queue a request the Bungee admin-poller turns into a per-online-
+     *  player PERM_REFRESH. scope=user targets one player; the poller
+     *  no-ops if they're offline (perms apply on next join anyway). */
+    private void queueUserPermRefresh(@NotNull UUID uuid) {
+        storage.queueAction("PERM_REFRESH_REQUEST", uuid, Json.GSON.toJson(Map.of(
+                "scope", "user", "uuid", uuid.toString())));
+    }
+
+    /** scope=role: the poller fans this out to every online player whose
+     *  CloudNet group is bound to the role. */
+    private void queueRolePermRefresh(@NotNull String roleName) {
+        // Target UUID is irrelevant for role scope (the poller pulls by
+        // type), but the column is NOT NULL — use a zero UUID sentinel.
+        storage.queueAction("PERM_REFRESH_REQUEST",
+                new UUID(0L, 0L), Json.GSON.toJson(Map.of(
+                        "scope", "role", "role", roleName)));
     }
 
     /** SqlStorage implements both interfaces, so we cast for the call
@@ -1124,7 +1149,26 @@ public final class Routes {
                     "updatedAt", g.updatedAt().toEpochMilli(),
                     "updatedBy", g.updatedBy() == null ? "" : g.updatedBy()));
         }
-        ctx.json(Map.of("user", userRow(profile), "overrides", overrides));
+        // Full cached CloudNet group set — drives the dashboard's
+        // "already has / can add" view. Falls back to the primary group
+        // when the full set hasn't been cached yet (old recorder).
+        java.util.List<String> groups = storage.profileGroups(uuid);
+        if (groups.isEmpty() && profile.lastGroupName() != null && !profile.lastGroupName().isEmpty()) {
+            groups = java.util.List.of(profile.lastGroupName());
+        }
+        ctx.json(Map.of("user", userRow(profile), "overrides", overrides, "groups", groups));
+    }
+
+    /** GET /admin/cloud-groups — the synced CloudNet group catalogue so
+     *  the admin picks ranks from real groups. Empty until the Bungee
+     *  poller has run its first sync (or when CloudNet isn't present). */
+    private void listCloudGroups(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (var g : storage.listCloudGroups()) {
+            out.add(Map.of("name", g.name(), "sortId", g.sortId()));
+        }
+        ctx.json(Map.of("groups", out));
     }
 
     /** PUT /admin/users/{uuid}/group  body {group, op?}. Queues a

@@ -237,6 +237,56 @@ public final class CloudPermsAccess {
         return Collections.emptyList();
     }
 
+    /**
+     * Every group defined in CloudNet, as {@code (name, sortId)} pairs,
+     * sorted by descending sortId (highest rank first). Empty when
+     * CloudNet isn't reachable. Used to sync the available-rank list to
+     * the dashboard so admins pick from real groups instead of typing.
+     *
+     * <p>Reflective: tries {@code groups()} (CN4) then {@code getGroups()}
+     * (CN3), each returning a {@code Collection<PermissionGroup>}; reads
+     * the name + potency off each element with the same accessor scan
+     * the read path uses.</p>
+     */
+    public @NotNull List<GroupInfo> allGroups() {
+        if (!available()) return Collections.emptyList();
+        Object groupsRaw = null;
+        for (String mname : new String[]{"groups", "getGroups"}) {
+            try {
+                Method m = management.getClass().getMethod(mname);
+                groupsRaw = m.invoke(management);
+                if (groupsRaw != null) break;
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable t) {
+                logger.warning("CloudPerms allGroups via " + mname + " failed: " + t.getMessage());
+            }
+        }
+        if (!(groupsRaw instanceof java.util.Collection<?> col)) return Collections.emptyList();
+        List<GroupInfo> out = new java.util.ArrayList<>(col.size());
+        for (Object group : col) {
+            if (group == null) continue;
+            String name = readGroupName(group);
+            if (name == null || name.isEmpty()) continue;
+            out.add(new GroupInfo(name, readPotency(group)));
+        }
+        out.sort((a, b) -> Integer.compare(b.sortId(), a.sortId()));
+        return out;
+    }
+
+    /** A CloudNet group surfaced to the dashboard. */
+    public record GroupInfo(@NotNull String name, int sortId) {}
+
+    private static @org.jetbrains.annotations.Nullable String readGroupName(@NotNull Object group) {
+        for (String mname : new String[]{"name", "getName"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v != null) return String.valueOf(v);
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return null;
+    }
+
     private void bootstrap() {
         Class<?> managementType = firstClass(MANAGEMENT_TYPES);
         if (managementType == null) {

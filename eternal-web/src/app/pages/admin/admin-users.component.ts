@@ -4,6 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Subject, debounceTime, distinctUntilChanged, switchMap } from 'rxjs';
@@ -11,50 +15,50 @@ import { ApiService } from '../../core/api.service';
 import { AdminUser, PermissionRegistryEntry, Role } from '../../core/models';
 import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
 
-/** A user's permission override as returned by /admin/users/{uuid}. */
 interface Override { key: string; granted: boolean; updatedAt: number; updatedBy: string; }
 
 /**
- * Admin user management. Search ALL known players (offline included,
- * via the eternal_profiles table) and for the selected one:
+ * Admin user management — house-style Material layout. Search every known
+ * player (offline included), then per player:
+ *  - see the CloudNet groups they ALREADY have (chips, removable),
+ *  - add a group they don't have yet (dropdown shows only the missing
+ *    ones, so nothing doubles up),
+ *  - set per-user permission overrides on a three-state toggle group.
  *
- *  - see their cached CloudNet group + resolved web role,
- *  - change their CloudNet rank (queues a CLOUDNET_GROUP action the
- *    Bungee poller applies — works for offline players too),
- *  - set per-user permission overrides that beat the role grants.
- *
- * The permission matrix mirrors the role editor's three-state control,
- * but here DEFAULT means "fall through to the role + hardcoded default".
+ * Group + permission changes propagate to Minecraft live (the backend
+ * queues a refresh the proxy fans out to the player's backend).
  */
 @Component({
   selector: 'et-admin-users',
   standalone: true,
   imports: [
-    CommonModule, DatePipe, FormsModule, MatCardModule, MatIconModule,
-    MatButtonModule, MatProgressSpinnerModule, MatSnackBarModule, LegacyTextPipe
+    CommonModule, DatePipe, FormsModule, MatCardModule, MatIconModule, MatButtonModule,
+    MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonToggleModule,
+    MatProgressSpinnerModule, MatSnackBarModule, LegacyTextPipe
   ],
   template: `
     <h1 class="text-3xl font-bold mb-2">Benutzer &amp; Ränge</h1>
     <p class="text-ink-300 mb-6">
-      Jeden bekannten Spieler bearbeiten — auch offline. Rang ändern oder
-      einzelne Rechte gezielt zuteilen / entziehen.
+      Jeden bekannten Spieler bearbeiten — auch offline. Änderungen werden
+      live auf Minecraft übernommen.
     </p>
 
     <div class="grid lg:grid-cols-[340px_1fr] gap-5">
       <!-- ===== Search + list ===== -->
       <mat-card class="p-4 h-fit">
-        <div class="relative mb-3">
-          <mat-icon class="absolute left-2 top-2 text-ink-400 !text-lg">search</mat-icon>
-          <input [(ngModel)]="query" (ngModelChange)="onSearch($event)"
-                 class="w-full bg-ink-800 border border-ink-600 rounded pl-9 pr-3 py-2 text-sm"
-                 placeholder="Name oder UUID … (leer = zuletzt gesehen)" />
-        </div>
+        <mat-form-field appearance="outline" class="w-full">
+          <mat-label>Spieler suchen</mat-label>
+          <mat-icon matPrefix class="!mr-1 text-ink-400">search</mat-icon>
+          <input matInput [(ngModel)]="query" (ngModelChange)="onSearch($event)"
+                 placeholder="Name oder UUID" />
+        </mat-form-field>
+
         <div *ngIf="searching()" class="flex justify-center py-4"><mat-spinner diameter="24" /></div>
         <div *ngIf="!searching() && users().length === 0" class="text-ink-300 text-sm py-2">Keine Treffer.</div>
-        <div class="space-y-1 max-h-[60vh] overflow-y-auto">
+        <div class="space-y-1 max-h-[60vh] overflow-y-auto -mx-1 px-1">
           <button *ngFor="let u of users()"
                   (click)="selectUser(u)"
-                  class="w-full text-left px-2 py-2 rounded transition flex items-center gap-2"
+                  class="w-full text-left px-2 py-2 rounded-lg transition flex items-center gap-2"
                   [class.bg-ink-700]="selected()?.uuid === u.uuid"
                   [class.hover:bg-ink-700]="selected()?.uuid !== u.uuid">
             <img [src]="head(u.uuid)" class="w-7 h-7 rounded" alt="" />
@@ -78,85 +82,81 @@ interface Override { key: string; granted: boolean; updatedAt: number; updatedBy
             <div class="text-xs text-ink-400 font-mono">{{ u.uuid }}</div>
             <div class="text-sm text-ink-300 mt-1">
               Zuletzt gesehen: {{ u.lastSeen ? (u.lastSeen | date:'yyyy-MM-dd HH:mm') : '—' }}
+              <span *ngIf="u.resolvedRole" class="ml-2">· Web-Rolle <span class="text-eternal-300">{{ u.resolvedRole }}</span></span>
             </div>
           </div>
         </div>
 
-        <!-- Rank changer -->
-        <div class="bg-ink-800/50 border border-ink-700 rounded-lg p-4 mb-6">
-          <h3 class="font-semibold mb-1 flex items-center gap-2">
-            <mat-icon class="text-eternal-300 !text-lg">military_tech</mat-icon> Rang
+        <!-- Rank manager -->
+        <div class="rounded-lg border border-ink-700 bg-ink-800/40 p-5 mb-6">
+          <h3 class="font-semibold mb-3 flex items-center gap-2">
+            <mat-icon class="text-eternal-300 !text-xl">military_tech</mat-icon> CloudNet-Ränge
           </h3>
-          <p class="text-sm text-ink-300 mb-3">
-            Aktuelle CloudNet-Gruppe: <span class="font-mono text-cyan-300">{{ u.groupName || '—' }}</span>
-            <span *ngIf="u.resolvedRole" class="text-ink-400"> → Web-Rolle {{ u.resolvedRole }}</span>
-          </p>
-          <div class="flex flex-wrap gap-2 items-end">
-            <label class="block">
-              <span class="text-xs text-ink-300">Neue Gruppe</span>
-              <input [(ngModel)]="newGroup" list="role-groups"
-                     class="mt-1 bg-ink-800 border border-ink-600 rounded px-3 py-2 text-sm font-mono w-56"
-                     placeholder="CloudNet-Gruppenname" />
-              <datalist id="role-groups">
-                <option *ngFor="let r of roles()" [value]="r.mcGroupName">{{ r.displayName }}</option>
-              </datalist>
-            </label>
-            <button mat-flat-button color="primary" (click)="applyGroup(u, 'SET')" [disabled]="!newGroup.trim()">
-              <mat-icon>swap_horiz</mat-icon> Rang setzen
-            </button>
-            <button mat-stroked-button (click)="applyGroup(u, 'ADD')" [disabled]="!newGroup.trim()">
-              <mat-icon>add</mat-icon> Hinzufügen
-            </button>
-            <button mat-stroked-button color="warn" (click)="applyGroup(u, 'REMOVE')" [disabled]="!newGroup.trim()">
-              <mat-icon>remove</mat-icon> Entfernen
-            </button>
-          </div>
-          <p class="text-xs text-ink-400 mt-2">
-            Änderung wird über CloudNet angewendet (auch wenn der Spieler offline ist) und
-            greift ingame nach kurzer Verzögerung.
-          </p>
+
+          <div *ngIf="loadingDetail()" class="flex justify-center py-3"><mat-spinner diameter="24" /></div>
+
+          <ng-container *ngIf="!loadingDetail()">
+            <!-- Groups the user already has -->
+            <div class="mb-1 text-sm text-ink-300">Hat aktuell:</div>
+            <div class="flex flex-wrap gap-2 mb-4">
+              <span *ngFor="let g of userGroups()"
+                    class="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full bg-ink-700 border border-ink-600 text-sm">
+                <span class="font-mono">{{ g }}</span>
+                <button (click)="removeGroup(u, g)" class="hover:text-red-300 transition" aria-label="Entfernen">
+                  <mat-icon class="!text-base !w-4 !h-4 !leading-4 align-middle">close</mat-icon>
+                </button>
+              </span>
+              <span *ngIf="userGroups().length === 0" class="text-sm text-ink-400 italic">keine Gruppen</span>
+            </div>
+
+            <!-- Add a group the user doesn't have yet -->
+            <div class="flex flex-wrap gap-3 items-center">
+              <mat-form-field appearance="outline" class="!mb-0" style="width: 16rem">
+                <mat-label>Rang hinzufügen</mat-label>
+                <mat-select [(ngModel)]="groupToAdd" [disabled]="addableGroups().length === 0">
+                  <mat-option *ngFor="let g of addableGroups()" [value]="g.name">
+                    {{ g.name }} <span class="text-ink-400 text-xs">(sortId {{ g.sortId }})</span>
+                  </mat-option>
+                </mat-select>
+              </mat-form-field>
+              <button mat-flat-button color="primary" (click)="addGroup(u)" [disabled]="!groupToAdd">
+                <mat-icon>add</mat-icon> Hinzufügen
+              </button>
+              <button mat-stroked-button (click)="setPrimary(u)" [disabled]="!groupToAdd">
+                <mat-icon>swap_horiz</mat-icon> Als einzigen Rang setzen
+              </button>
+            </div>
+            <p *ngIf="cloudGroups().length === 0" class="text-xs text-amber-300/80 mt-2">
+              Keine CloudNet-Gruppen synchronisiert. Läuft der Proxy mit CloudNet?
+            </p>
+          </ng-container>
         </div>
 
         <!-- Per-user permission overrides -->
         <h3 class="font-semibold mb-1">Persönliche Rechte-Overrides</h3>
         <p class="text-sm text-ink-300 mb-4">
-          Überschreiben die Rolle. <span class="text-emerald-300">An</span> /
-          <span class="text-red-300">Aus</span> setzen oder auf
-          <span class="text-ink-400">Rolle</span> zurückfallen lassen.
+          Überschreiben die Rolle. „Rolle" = zurück auf den Rollen-Standard.
         </p>
 
-        <div *ngIf="loadingPerms()" class="flex justify-center py-6"><mat-spinner diameter="28" /></div>
+        <div *ngIf="loadingDetail()" class="flex justify-center py-6"><mat-spinner diameter="28" /></div>
 
-        <div *ngIf="!loadingPerms()">
+        <div *ngIf="!loadingDetail()">
           <div *ngFor="let cat of categoryKeys()" class="mb-5">
             <div class="text-xs uppercase tracking-wide text-eternal-300 mb-2">{{ cat }}</div>
-            <div class="space-y-1.5">
+            <div class="space-y-1">
               <div *ngFor="let entry of registry()[cat]"
-                   class="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-ink-800/50">
+                   class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-ink-800/50">
                 <div class="flex-1 min-w-0">
                   <div class="text-sm">{{ entry.label }}</div>
                   <div class="text-xs text-ink-400 font-mono truncate">{{ entry.key }}</div>
                 </div>
-                <div class="flex rounded-md overflow-hidden border border-ink-600 shrink-0">
-                  <button (click)="setPerm(u, entry.key, true)"
-                          class="px-2.5 py-1 text-xs transition"
-                          [class.bg-emerald-600]="stateOf(entry.key) === 'GRANT'"
-                          [class.text-white]="stateOf(entry.key) === 'GRANT'"
-                          [class.text-ink-300]="stateOf(entry.key) !== 'GRANT'"
-                          [class.hover:bg-ink-700]="stateOf(entry.key) !== 'GRANT'">An</button>
-                  <button (click)="clearPerm(u, entry.key)"
-                          class="px-2.5 py-1 text-xs transition border-x border-ink-600"
-                          [class.bg-ink-500]="stateOf(entry.key) === 'DEFAULT'"
-                          [class.text-white]="stateOf(entry.key) === 'DEFAULT'"
-                          [class.text-ink-300]="stateOf(entry.key) !== 'DEFAULT'"
-                          [class.hover:bg-ink-700]="stateOf(entry.key) !== 'DEFAULT'">Rolle</button>
-                  <button (click)="setPerm(u, entry.key, false)"
-                          class="px-2.5 py-1 text-xs transition"
-                          [class.bg-red-600]="stateOf(entry.key) === 'DENY'"
-                          [class.text-white]="stateOf(entry.key) === 'DENY'"
-                          [class.text-ink-300]="stateOf(entry.key) !== 'DENY'"
-                          [class.hover:bg-ink-700]="stateOf(entry.key) !== 'DENY'">Aus</button>
-                </div>
+                <mat-button-toggle-group [value]="stateOf(entry.key)"
+                                         (change)="onToggle(u, entry.key, $event.value)"
+                                         class="et-perm-toggle" hideSingleSelectionIndicator>
+                  <mat-button-toggle value="GRANT">An</mat-button-toggle>
+                  <mat-button-toggle value="DEFAULT">Rolle</mat-button-toggle>
+                  <mat-button-toggle value="DENY">Aus</mat-button-toggle>
+                </mat-button-toggle-group>
               </div>
             </div>
           </div>
@@ -170,7 +170,18 @@ interface Override { key: string; granted: boolean; updatedAt: number; updatedBy
         </mat-card>
       </ng-template>
     </div>
-  `
+  `,
+  styles: [`
+    /* Compact, on-brand three-state toggle. Active GRANT = green,
+       DENY = red, DEFAULT = pink — never the Material accent blue. */
+    ::ng-deep .et-perm-toggle .mat-button-toggle { background: #13131a; color: #9b9bb0; }
+    ::ng-deep .et-perm-toggle .mat-button-toggle-button { font-size: .75rem; }
+    ::ng-deep .et-perm-toggle .mat-button-toggle-appearance-standard
+      .mat-button-toggle-label-content { line-height: 30px; padding: 0 12px; }
+    ::ng-deep .et-perm-toggle .mat-button-toggle-checked[value="GRANT"] { background: #059669; color: #fff; }
+    ::ng-deep .et-perm-toggle .mat-button-toggle-checked[value="DENY"]  { background: #dc2626; color: #fff; }
+    ::ng-deep .et-perm-toggle .mat-button-toggle-checked[value="DEFAULT"] { background: #3a3a4b; color: #fff; }
+  `]
 })
 export class AdminUsersComponent implements OnInit {
   private readonly api = inject(ApiService);
@@ -178,51 +189,59 @@ export class AdminUsersComponent implements OnInit {
   private readonly search$ = new Subject<string>();
 
   query = '';
-  newGroup = '';
+  groupToAdd = '';
   readonly searching = signal(false);
+  readonly loadingDetail = signal(false);
   readonly users = signal<AdminUser[]>([]);
   readonly selected = signal<AdminUser | null>(null);
-  readonly roles = signal<Role[]>([]);
   readonly registry = signal<Record<string, PermissionRegistryEntry[]>>({});
   readonly overrides = signal<Override[]>([]);
-  readonly loadingPerms = signal(false);
+  readonly userGroups = signal<string[]>([]);
+  readonly cloudGroups = signal<Array<{ name: string; sortId: number }>>([]);
 
   readonly categoryKeys = computed(() => Object.keys(this.registry()));
+  /** CloudNet groups the user does NOT have yet — drives the add dropdown
+   *  so the same rank can't be added twice. */
+  readonly addableGroups = computed(() => {
+    const have = new Set(this.userGroups().map(g => g.toLowerCase()));
+    return this.cloudGroups().filter(g => !have.has(g.name.toLowerCase()));
+  });
 
   ngOnInit() {
-    // Registry + roles for the matrix + rank datalist.
     this.api.permissionRegistry().subscribe(reg => this.registry.set(reg.categories ?? {}));
-    this.api.listRoles().subscribe(res => this.roles.set(res.roles ?? []));
-    // Debounced search pipe.
+    this.api.adminCloudGroups().subscribe(res => this.cloudGroups.set(res.groups ?? []));
     this.search$.pipe(
       debounceTime(250),
       distinctUntilChanged(),
       switchMap(q => { this.searching.set(true); return this.api.adminListUsers(q); })
     ).subscribe({
       next: res => { this.users.set(res.users ?? []); this.searching.set(false); },
-      error: () => { this.searching.set(false); }
+      error: () => this.searching.set(false)
     });
-    // Initial load: recent players.
     this.search$.next('');
   }
 
-  onSearch(q: string) {
-    this.search$.next(q);
-  }
+  onSearch(q: string) { this.search$.next(q); }
 
   selectUser(u: AdminUser) {
     this.selected.set(u);
-    this.newGroup = '';
-    this.loadOverrides(u.uuid);
+    this.groupToAdd = '';
+    this.loadDetail(u.uuid);
   }
 
-  private loadOverrides(uuid: string) {
-    this.loadingPerms.set(true);
+  private loadDetail(uuid: string) {
+    this.loadingDetail.set(true);
     this.api.adminGetUser(uuid).subscribe({
-      next: res => { this.overrides.set(res.overrides ?? []); this.loadingPerms.set(false); },
-      error: () => { this.overrides.set([]); this.loadingPerms.set(false); }
+      next: res => {
+        this.overrides.set(res.overrides ?? []);
+        this.userGroups.set(res.groups ?? []);
+        this.loadingDetail.set(false);
+      },
+      error: () => { this.overrides.set([]); this.userGroups.set([]); this.loadingDetail.set(false); }
     });
   }
+
+  /* --- permission overrides --- */
 
   stateOf(key: string): 'GRANT' | 'DENY' | 'DEFAULT' {
     const o = this.overrides().find(x => x.key === key);
@@ -230,18 +249,19 @@ export class AdminUsersComponent implements OnInit {
     return o.granted ? 'GRANT' : 'DENY';
   }
 
-  setPerm(u: AdminUser, key: string, granted: boolean) {
-    this.api.setUserPermission(u.uuid, key, granted).subscribe({
-      next: () => this.patchOverride(key, granted),
-      error: e => this.err(e.error?.error ?? 'Update fehlgeschlagen.')
-    });
-  }
-
-  clearPerm(u: AdminUser, key: string) {
-    this.api.clearUserPermission(u.uuid, key).subscribe({
-      next: () => this.patchOverride(key, null),
-      error: e => this.err(e.error?.error ?? 'Update fehlgeschlagen.')
-    });
+  onToggle(u: AdminUser, key: string, state: 'GRANT' | 'DENY' | 'DEFAULT') {
+    if (state === 'DEFAULT') {
+      this.api.clearUserPermission(u.uuid, key).subscribe({
+        next: () => this.patchOverride(key, null),
+        error: e => this.err(e.error?.error ?? 'Update fehlgeschlagen.')
+      });
+    } else {
+      const granted = state === 'GRANT';
+      this.api.setUserPermission(u.uuid, key, granted).subscribe({
+        next: () => this.patchOverride(key, granted),
+        error: e => this.err(e.error?.error ?? 'Update fehlgeschlagen.')
+      });
+    }
   }
 
   private patchOverride(key: string, granted: boolean | null) {
@@ -250,34 +270,50 @@ export class AdminUsersComponent implements OnInit {
     this.overrides.set(without);
   }
 
-  applyGroup(u: AdminUser, op: 'SET' | 'ADD' | 'REMOVE') {
-    const group = this.newGroup.trim();
-    if (!group) return;
-    this.api.changeUserGroup(u.uuid, group, op).subscribe({
+  /* --- rank changes --- */
+
+  addGroup(u: AdminUser) {
+    const g = this.groupToAdd;
+    if (!g) return;
+    this.api.changeUserGroup(u.uuid, g, 'ADD').subscribe({
       next: () => {
-        const verb = op === 'SET' ? 'gesetzt' : op === 'ADD' ? 'hinzugefügt' : 'entfernt';
-        this.snack.open(`Rang-Änderung (${group}) ${verb} — wird über CloudNet angewendet.`, 'OK', { duration: 3500 });
-        // Optimistically reflect SET in the list/detail; ADD/REMOVE we
-        // leave until the next search refresh since multi-group state
-        // isn't tracked client-side.
-        if (op === 'SET') {
-          const updated = { ...u, groupName: group };
-          this.selected.set(updated);
-          this.users.set(this.users().map(x => x.uuid === u.uuid ? updated : x));
-        }
-        this.newGroup = '';
+        this.snack.open(`Rang „${g}" hinzugefügt — wird live übernommen.`, 'OK', { duration: 3000 });
+        this.userGroups.set([...this.userGroups(), g]);
+        this.groupToAdd = '';
       },
-      error: e => this.err(e.error?.error ?? 'Rang-Änderung fehlgeschlagen.')
+      error: e => this.err(e.error?.error ?? 'Fehlgeschlagen.')
+    });
+  }
+
+  removeGroup(u: AdminUser, g: string) {
+    this.api.changeUserGroup(u.uuid, g, 'REMOVE').subscribe({
+      next: () => {
+        this.snack.open(`Rang „${g}" entfernt.`, 'OK', { duration: 2500 });
+        this.userGroups.set(this.userGroups().filter(x => x !== g));
+      },
+      error: e => this.err(e.error?.error ?? 'Fehlgeschlagen.')
+    });
+  }
+
+  setPrimary(u: AdminUser) {
+    const g = this.groupToAdd;
+    if (!g) return;
+    this.api.changeUserGroup(u.uuid, g, 'SET').subscribe({
+      next: () => {
+        this.snack.open(`„${g}" als einziger Rang gesetzt.`, 'OK', { duration: 3000 });
+        this.userGroups.set([g]);
+        const updated = { ...u, groupName: g };
+        this.selected.set(updated);
+        this.users.set(this.users().map(x => x.uuid === u.uuid ? updated : x));
+        this.groupToAdd = '';
+      },
+      error: e => this.err(e.error?.error ?? 'Fehlgeschlagen.')
     });
   }
 
   head(uuid: string): string {
-    // Same source the rest of the dashboard uses (mc-heads.net), so the
-    // browser cache is shared and avatars look identical app-wide.
     return `https://mc-heads.net/avatar/${uuid.replace(/-/g, '')}/64`;
   }
 
-  private err(msg: string) {
-    this.snack.open(msg, 'OK', { duration: 4000 });
-  }
+  private err(msg: string) { this.snack.open(msg, 'OK', { duration: 4000 }); }
 }
