@@ -61,15 +61,42 @@ public final class AdminActionPoller {
         if (groupSyncTask != null) { groupSyncTask.cancel(); groupSyncTask = null; }
     }
 
-    /** Mirrors CloudNet's full group list into eternal_cloud_groups. */
+    /**
+     * Mirrors CloudNet's full group list into eternal_cloud_groups AND
+     * auto-seeds a matching role per group, so "ranks" on the website are
+     * exactly the CloudNet groups (the user's requirement: in-game ranks
+     * and web groups must not differ). Role metadata (display name, sort
+     * order, colour) is overwritten from CloudNet each cycle; the role's
+     * permission grants are preserved (upsertRole only touches metadata).
+     */
     private void syncGroups() {
         if (!plugin.cloudPerms().available()) return;
         try {
             var groups = plugin.cloudPerms().allGroups();
-            if (!groups.isEmpty()) plugin.storage().replaceCloudGroups(groups);
+            if (groups.isEmpty()) return;
+            plugin.storage().replaceCloudGroups(groups);
+
+            if (plugin.storage() instanceof de.eternal.core.permission.PermissionStorage perms) {
+                for (var g : groups) {
+                    // Role name == group name so the binding is 1:1 and
+                    // unambiguous. sortOrder mirrors CloudNet's sortId
+                    // (lower = higher rank); colour carries the &-code.
+                    var role = new de.eternal.core.model.Role(
+                            g.name(), capitalize(g.name()), g.name(),
+                            g.sortId(),
+                            g.color().isEmpty() ? "&7" : g.color(),
+                            java.time.Instant.now());
+                    perms.upsertRole(role);
+                }
+            }
         } catch (Exception ex) {
             plugin.getLogger().warning("CloudNet group-list sync failed: " + ex.getMessage());
         }
+    }
+
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private void tick() {

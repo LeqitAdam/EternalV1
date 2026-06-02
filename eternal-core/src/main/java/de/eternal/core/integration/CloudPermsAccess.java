@@ -238,15 +238,14 @@ public final class CloudPermsAccess {
     }
 
     /**
-     * Every group defined in CloudNet, as {@code (name, sortId)} pairs,
-     * sorted by descending sortId (highest rank first). Empty when
-     * CloudNet isn't reachable. Used to sync the available-rank list to
-     * the dashboard so admins pick from real groups instead of typing.
+     * Every group defined in CloudNet, as {@code (name, sortId, color)}
+     * triples, sorted by ASCENDING sortId — CloudNet's convention is
+     * lower sortId = higher rank, so the highest rank (e.g. Owner) comes
+     * first. Empty when CloudNet isn't reachable.
      *
      * <p>Reflective: tries {@code groups()} (CN4) then {@code getGroups()}
      * (CN3), each returning a {@code Collection<PermissionGroup>}; reads
-     * the name + potency off each element with the same accessor scan
-     * the read path uses.</p>
+     * name + potency + colour off each element.</p>
      */
     public @NotNull List<GroupInfo> allGroups() {
         if (!available()) return Collections.emptyList();
@@ -267,14 +266,54 @@ public final class CloudPermsAccess {
             if (group == null) continue;
             String name = readGroupName(group);
             if (name == null || name.isEmpty()) continue;
-            out.add(new GroupInfo(name, readPotency(group)));
+            out.add(new GroupInfo(name, readPotency(group), readGroupColor(group)));
         }
-        out.sort((a, b) -> Integer.compare(b.sortId(), a.sortId()));
+        // Ascending sortId — lowest number is the highest rank, first.
+        out.sort((a, b) -> Integer.compare(a.sortId(), b.sortId()));
         return out;
     }
 
-    /** A CloudNet group surfaced to the dashboard. */
-    public record GroupInfo(@NotNull String name, int sortId) {}
+    /** A CloudNet group surfaced to the dashboard. {@code color} is a
+     *  Minecraft {@code &}-code derived from the group's colour/prefix,
+     *  or empty when none could be read. */
+    public record GroupInfo(@NotNull String name, int sortId, @NotNull String color) {
+        /** Back-compat 2-arg constructor — colour defaults to empty. */
+        public GroupInfo(@NotNull String name, int sortId) { this(name, sortId, ""); }
+    }
+
+    /** Pulls a usable &amp;-colour code off a CloudNet group. Tries the
+     *  explicit {@code color()} first, then sniffs the last colour code
+     *  out of {@code prefix()} (e.g. "&4&lOwner " → "&4"). Empty when
+     *  neither yields something. */
+    private static @NotNull String readGroupColor(@NotNull Object group) {
+        // 1) explicit color() / getColor() — usually already an &-code.
+        for (String mname : new String[]{"color", "getColor"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v != null) {
+                    String s = String.valueOf(v).trim();
+                    if (!s.isEmpty()) return s.startsWith("&") || s.startsWith("§")
+                            ? s.replace('§', '&') : "&" + s;
+                }
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        // 2) last colour code in the prefix.
+        for (String mname : new String[]{"prefix", "getPrefix"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v == null) continue;
+                String prefix = String.valueOf(v).replace('§', '&');
+                int last = prefix.lastIndexOf('&');
+                if (last >= 0 && last + 1 < prefix.length()) {
+                    char c = Character.toLowerCase(prefix.charAt(last + 1));
+                    if ("0123456789abcdef".indexOf(c) >= 0) return "&" + c;
+                }
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return "";
+    }
 
     private static @org.jetbrains.annotations.Nullable String readGroupName(@NotNull Object group) {
         for (String mname : new String[]{"name", "getName"}) {

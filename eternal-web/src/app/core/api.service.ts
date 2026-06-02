@@ -176,9 +176,10 @@ export class ApiService {
     return this.http.get<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }>; groups: string[] }>(
       this.url(`/admin/users/${uuid}`));
   }
-  /** Synced CloudNet group catalogue (name + sortId, highest first). */
-  adminCloudGroups(): Observable<{ groups: Array<{ name: string; sortId: number }> }> {
-    return this.http.get<{ groups: Array<{ name: string; sortId: number }> }>(this.url('/admin/cloud-groups'));
+  /** Synced CloudNet group catalogue (name + sortId + &-colour),
+   *  lowest sortId (= highest rank) first. */
+  adminCloudGroups(): Observable<{ groups: Array<{ name: string; sortId: number; color: string }> }> {
+    return this.http.get<{ groups: Array<{ name: string; sortId: number; color: string }> }>(this.url('/admin/cloud-groups'));
   }
   setUserPermission(uuid: string, key: string, granted: boolean) {
     return this.http.put<{ ok: boolean }>(

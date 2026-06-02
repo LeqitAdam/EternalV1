@@ -34,9 +34,14 @@ import { PermissionRegistryEntry, Role } from '../../core/models';
   template: `
     <h1 class="text-3xl font-bold mb-2">Rollen &amp; Rechte</h1>
     <p class="text-ink-300 mb-6">
-      Rollen werden über die CloudNet-Gruppe zugeordnet. Rechte gelten für
-      jeden Spieler dieser Gruppe und werden live ins Spiel übernommen —
-      sofern kein User-Override greift.
+      <ng-container *ngIf="cloudActive()">
+        Die Rollen sind die CloudNet-Gruppen — identisch zu ingame. Rechte
+        gelten für jeden Spieler der Gruppe und werden live übernommen.
+      </ng-container>
+      <ng-container *ngIf="!cloudActive()">
+        Kein CloudNet erkannt — du kannst eigene Rollen anlegen und sie
+        einer Gruppe zuordnen.
+      </ng-container>
     </p>
 
     <div *ngIf="loading()" class="flex justify-center py-12"><mat-spinner /></div>
@@ -45,23 +50,22 @@ import { PermissionRegistryEntry, Role } from '../../core/models';
       <!-- ===== Role list ===== -->
       <mat-card class="p-4 h-fit">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="font-semibold">Rollen</h2>
-          <button mat-icon-button (click)="startNewRole()" aria-label="Neue Rolle">
+          <h2 class="font-semibold">{{ cloudActive() ? 'Ränge' : 'Rollen' }}</h2>
+          <button *ngIf="!cloudActive()" mat-icon-button (click)="startNewRole()" aria-label="Neue Rolle">
             <mat-icon class="text-eternal-300">add</mat-icon>
           </button>
         </div>
         <div *ngIf="roles().length === 0" class="text-ink-300 text-sm py-2">
-          Noch keine Rollen. Lege eine an, die auf eine CloudNet-Gruppe zeigt.
+          {{ cloudActive() ? 'Noch keine Gruppen synchronisiert.' : 'Noch keine Rollen — lege eine an.' }}
         </div>
         <div class="space-y-1">
           <button *ngFor="let r of roles()"
                   (click)="selectRole(r)"
-                  class="w-full text-left px-3 py-2 rounded-lg transition flex items-center gap-2"
-                  [class.bg-ink-700]="selected()?.name === r.name"
-                  [class.hover:bg-ink-700]="selected()?.name !== r.name">
+                  class="w-full text-left px-3 py-2 rounded-lg transition flex items-center gap-2 text-ink-100 hover:bg-ink-700"
+                  [class.bg-ink-700]="selected()?.name === r.name">
             <span class="w-2.5 h-2.5 rounded-full shrink-0" [style.background]="hexFor(r.color)"></span>
-            <span class="flex-1 truncate">{{ r.displayName }}</span>
-            <span class="text-xs text-ink-400 font-mono">{{ r.mcGroupName }}</span>
+            <span class="flex-1 truncate" [style.color]="hexFor(r.color)">{{ r.displayName }}</span>
+            <span class="text-xs text-ink-400 font-mono">#{{ r.sortOrder }}</span>
           </button>
         </div>
       </mat-card>
@@ -69,46 +73,60 @@ import { PermissionRegistryEntry, Role } from '../../core/models';
       <!-- ===== Editor pane ===== -->
       <mat-card class="p-6" *ngIf="selected() as role; else noSelection">
         <div class="flex items-start justify-between mb-5">
-          <h2 class="text-xl font-semibold">{{ isNew() ? 'Neue Rolle' : role.displayName }}</h2>
-          <button *ngIf="!isNew()" mat-stroked-button color="warn" (click)="removeRole(role)">
+          <h2 class="text-xl font-semibold flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full" [style.background]="hexFor(form.color)"></span>
+            <span [style.color]="hexFor(form.color)">{{ isNew() ? 'Neue Rolle' : role.displayName }}</span>
+          </h2>
+          <button *ngIf="!cloudActive() && !isNew()" mat-stroked-button color="warn" (click)="removeRole(role)">
             <mat-icon>delete</mat-icon> Löschen
           </button>
         </div>
 
-        <!-- Metadata grid -->
-        <div class="grid sm:grid-cols-2 gap-x-4">
-          <mat-form-field appearance="outline">
-            <mat-label>Interner Name (eindeutig)</mat-label>
-            <input matInput [(ngModel)]="form.name" [disabled]="!isNew()" placeholder="z.B. moderator" />
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Anzeigename</mat-label>
-            <input matInput [(ngModel)]="form.displayName" placeholder="z.B. Moderator" />
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>CloudNet-Gruppe</mat-label>
-            <mat-select *ngIf="cloudGroups().length > 0" [(ngModel)]="form.mcGroupName">
-              <mat-option *ngFor="let g of cloudGroups()" [value]="g.name">{{ g.name }}</mat-option>
-            </mat-select>
-            <input matInput *ngIf="cloudGroups().length === 0" [(ngModel)]="form.mcGroupName"
-                   placeholder="exakter Gruppenname" />
-          </mat-form-field>
-          <div class="grid grid-cols-2 gap-x-3">
-            <mat-form-field appearance="outline">
-              <mat-label>Sortierung</mat-label>
-              <input matInput type="number" [(ngModel)]="form.sortOrder" />
-            </mat-form-field>
-            <mat-form-field appearance="outline">
-              <mat-label>Farbe (&amp;-Code)</mat-label>
-              <input matInput [(ngModel)]="form.color" placeholder="&amp;a" />
-            </mat-form-field>
+        <!-- CloudNet mode: read-only metadata summary. -->
+        <div *ngIf="cloudActive()" class="rounded-lg border border-ink-700 bg-ink-800/40 p-4 mb-6 text-sm">
+          <div class="grid sm:grid-cols-3 gap-2 text-ink-300">
+            <div>CloudNet-Gruppe: <span class="font-mono text-cyan-300">{{ role.mcGroupName }}</span></div>
+            <div>SortID: <span class="text-ink-100">{{ role.sortOrder }}</span> <span class="text-ink-500 text-xs">(kleiner = höher)</span></div>
+            <div>Farbe: <span class="font-mono" [style.color]="hexFor(role.color)">{{ role.color }}</span></div>
           </div>
+          <p class="text-xs text-ink-400 mt-2">
+            Name, Gruppe, Sortierung und Farbe kommen direkt aus CloudNet und
+            sind hier nicht editierbar. Nur die Rechte unten passt du an.
+          </p>
         </div>
-        <div class="mb-6 -mt-1">
-          <button mat-flat-button color="primary" (click)="saveRole()" [disabled]="!formValid()">
-            <mat-icon>save</mat-icon> {{ isNew() ? 'Rolle anlegen' : 'Metadaten speichern' }}
-          </button>
-        </div>
+
+        <!-- Manual mode (no CloudNet): editable metadata. -->
+        <ng-container *ngIf="!cloudActive()">
+          <div class="grid sm:grid-cols-2 gap-x-4">
+            <mat-form-field appearance="outline">
+              <mat-label>Interner Name (eindeutig)</mat-label>
+              <input matInput [(ngModel)]="form.name" [disabled]="!isNew()" placeholder="z.B. moderator" />
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Anzeigename</mat-label>
+              <input matInput [(ngModel)]="form.displayName" placeholder="z.B. Moderator" />
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Gruppe</mat-label>
+              <input matInput [(ngModel)]="form.mcGroupName" placeholder="exakter Gruppenname" />
+            </mat-form-field>
+            <div class="grid grid-cols-2 gap-x-3">
+              <mat-form-field appearance="outline">
+                <mat-label>Sortierung</mat-label>
+                <input matInput type="number" [(ngModel)]="form.sortOrder" />
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Farbe (&amp;-Code)</mat-label>
+                <input matInput [(ngModel)]="form.color" placeholder="&amp;a" />
+              </mat-form-field>
+            </div>
+          </div>
+          <div class="mb-6 -mt-1">
+            <button mat-flat-button color="primary" (click)="saveRole()" [disabled]="!formValid()">
+              <mat-icon>save</mat-icon> {{ isNew() ? 'Rolle anlegen' : 'Metadaten speichern' }}
+            </button>
+          </div>
+        </ng-container>
 
         <!-- Permission matrix (existing roles only) -->
         <ng-container *ngIf="!isNew()">
@@ -169,13 +187,18 @@ export class PermissionsComponent implements OnInit {
   readonly loading = signal(true);
   readonly roles = signal<Role[]>([]);
   readonly registry = signal<Record<string, PermissionRegistryEntry[]>>({});
-  readonly cloudGroups = signal<Array<{ name: string; sortId: number }>>([]);
+  readonly cloudGroups = signal<Array<{ name: string; sortId: number; color: string }>>([]);
   readonly selected = signal<Role | null>(null);
   readonly isNew = signal(false);
 
   form = { name: '', displayName: '', mcGroupName: '', sortOrder: 0, color: '&7' };
 
   readonly categoryKeys = computed(() => Object.keys(this.registry()));
+  /** When CloudNet is present, roles ARE the CloudNet groups (auto-synced
+   *  by the proxy). Metadata is then read-only — the admin only edits
+   *  permissions. Manual role create/edit/delete is the no-CloudNet
+   *  fallback. */
+  readonly cloudActive = computed(() => this.cloudGroups().length > 0);
 
   ngOnInit() { this.reload(); }
 

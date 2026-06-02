@@ -350,11 +350,12 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
                 st.execute("DELETE FROM eternal_cloud_groups");
             }
             try (PreparedStatement ps = c.prepareStatement(
-                    "INSERT INTO eternal_cloud_groups (name, sort_id, synced_at) VALUES (?, ?, ?)")) {
+                    "INSERT INTO eternal_cloud_groups (name, sort_id, color, synced_at) VALUES (?, ?, ?, ?)")) {
                 for (var g : groups) {
                     ps.setString(1, g.name());
                     ps.setInt(2, g.sortId());
-                    ps.setLong(3, now);
+                    ps.setString(3, g.color());
+                    ps.setLong(4, now);
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -366,14 +367,16 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
 
     @Override
     public @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> listCloudGroups() {
+        // Ascending sortId — lowest = highest rank, shown first.
         try (Connection c = conn();
              PreparedStatement ps = c.prepareStatement(
-                     "SELECT name, sort_id FROM eternal_cloud_groups ORDER BY sort_id DESC, name ASC");
+                     "SELECT name, sort_id, color FROM eternal_cloud_groups ORDER BY sort_id ASC, name ASC");
              ResultSet rs = ps.executeQuery()) {
             List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> out = new ArrayList<>();
             while (rs.next()) {
                 out.add(new de.eternal.core.integration.CloudPermsAccess.GroupInfo(
-                        rs.getString("name"), rs.getInt("sort_id")));
+                        rs.getString("name"), rs.getInt("sort_id"),
+                        rs.getString("color") == null ? "" : rs.getString("color")));
             }
             return out;
         } catch (SQLException ex) {
@@ -387,10 +390,13 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
                     CREATE TABLE IF NOT EXISTS eternal_cloud_groups (
                       name VARCHAR(64) PRIMARY KEY,
                       sort_id INTEGER NOT NULL DEFAULT 0,
+                      color VARCHAR(16) NOT NULL DEFAULT '',
                       synced_at BIGINT NOT NULL
                     )
                     """);
         }
+        // Idempotent add for DBs created before the colour column existed.
+        runIdempotent(c, "ALTER TABLE eternal_cloud_groups ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT ''");
     }
 
     private void migrateAddProfileGroups(@NotNull Connection c) {

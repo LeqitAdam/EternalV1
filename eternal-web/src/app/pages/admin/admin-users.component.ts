@@ -58,13 +58,12 @@ interface Override { key: string; granted: boolean; updatedAt: number; updatedBy
         <div class="space-y-1 max-h-[60vh] overflow-y-auto -mx-1 px-1">
           <button *ngFor="let u of users()"
                   (click)="selectUser(u)"
-                  class="w-full text-left px-2 py-2 rounded-lg transition flex items-center gap-2"
-                  [class.bg-ink-700]="selected()?.uuid === u.uuid"
-                  [class.hover:bg-ink-700]="selected()?.uuid !== u.uuid">
-            <img [src]="head(u.uuid)" class="w-7 h-7 rounded" alt="" />
+                  class="w-full text-left px-2 py-2 rounded-lg transition flex items-center gap-2 text-ink-100 hover:bg-ink-700"
+                  [class.bg-ink-700]="selected()?.uuid === u.uuid">
+            <img [src]="head(u.uuid)" class="w-7 h-7 rounded shrink-0" alt="" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm truncate" [innerHTML]="(u.lastDisplayName || u.name) | legacy"></div>
-              <div class="text-xs text-ink-400 truncate">
+              <div class="text-sm truncate text-ink-100" [innerHTML]="(u.lastDisplayName || u.name) | legacy"></div>
+              <div class="text-xs text-ink-300 truncate">
                 {{ u.groupName || 'keine Gruppe' }}
                 <span *ngIf="u.resolvedRole" class="text-eternal-300">· {{ u.resolvedRole }}</span>
               </div>
@@ -100,9 +99,10 @@ interface Override { key: string; granted: boolean; updatedAt: number; updatedBy
             <div class="mb-1 text-sm text-ink-300">Hat aktuell:</div>
             <div class="flex flex-wrap gap-2 mb-4">
               <span *ngFor="let g of userGroups()"
-                    class="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full bg-ink-700 border border-ink-600 text-sm">
-                <span class="font-mono">{{ g }}</span>
-                <button (click)="removeGroup(u, g)" class="hover:text-red-300 transition" aria-label="Entfernen">
+                    class="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-ink-700 border border-ink-600 text-sm">
+                <span class="w-2 h-2 rounded-full shrink-0" [style.background]="colorOf(g)"></span>
+                <span class="font-mono" [style.color]="colorOf(g)">{{ g }}</span>
+                <button (click)="removeGroup(u, g)" class="text-ink-300 hover:text-red-300 transition leading-none" aria-label="Entfernen">
                   <mat-icon class="!text-base !w-4 !h-4 !leading-4 align-middle">close</mat-icon>
                 </button>
               </span>
@@ -111,11 +111,15 @@ interface Override { key: string; granted: boolean; updatedAt: number; updatedBy
 
             <!-- Add a group the user doesn't have yet -->
             <div class="flex flex-wrap gap-3 items-center">
-              <mat-form-field appearance="outline" class="!mb-0" style="width: 16rem">
+              <mat-form-field appearance="outline" class="!mb-0" style="width: 18rem">
                 <mat-label>Rang hinzufügen</mat-label>
                 <mat-select [(ngModel)]="groupToAdd" [disabled]="addableGroups().length === 0">
                   <mat-option *ngFor="let g of addableGroups()" [value]="g.name">
-                    {{ g.name }} <span class="text-ink-400 text-xs">(sortId {{ g.sortId }})</span>
+                    <span class="inline-flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full" [style.background]="hexFor(g.color)"></span>
+                      <span [style.color]="hexFor(g.color)">{{ g.name }}</span>
+                      <span class="text-ink-400 text-xs">#{{ g.sortId }}</span>
+                    </span>
                   </mat-option>
                 </mat-select>
               </mat-form-field>
@@ -197,15 +201,32 @@ export class AdminUsersComponent implements OnInit {
   readonly registry = signal<Record<string, PermissionRegistryEntry[]>>({});
   readonly overrides = signal<Override[]>([]);
   readonly userGroups = signal<string[]>([]);
-  readonly cloudGroups = signal<Array<{ name: string; sortId: number }>>([]);
+  readonly cloudGroups = signal<Array<{ name: string; sortId: number; color: string }>>([]);
 
   readonly categoryKeys = computed(() => Object.keys(this.registry()));
   /** CloudNet groups the user does NOT have yet — drives the add dropdown
-   *  so the same rank can't be added twice. */
+   *  so the same rank can't be added twice. Backend already sorts by
+   *  ascending sortId (highest rank first). */
   readonly addableGroups = computed(() => {
     const have = new Set(this.userGroups().map(g => g.toLowerCase()));
     return this.cloudGroups().filter(g => !have.has(g.name.toLowerCase()));
   });
+
+  /** &-colour for a group name, looked up in the synced catalogue. */
+  colorOf(group: string): string {
+    const g = this.cloudGroups().find(x => x.name.toLowerCase() === group.toLowerCase());
+    return this.hexFor(g?.color ?? '');
+  }
+
+  hexFor(code: string): string {
+    const map: Record<string, string> = {
+      '&0': '#000000', '&1': '#0000aa', '&2': '#00aa00', '&3': '#00aaaa',
+      '&4': '#aa0000', '&5': '#aa00aa', '&6': '#ffaa00', '&7': '#aaaaaa',
+      '&8': '#555555', '&9': '#5555ff', '&a': '#55ff55', '&b': '#55ffff',
+      '&c': '#ff5555', '&d': '#ff55ff', '&e': '#ffff55', '&f': '#ffffff'
+    };
+    return map[(code || '').toLowerCase()] ?? '#aaaaaa';
+  }
 
   ngOnInit() {
     this.api.permissionRegistry().subscribe(reg => this.registry.set(reg.categories ?? {}));
