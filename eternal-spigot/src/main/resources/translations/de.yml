@@ -55,7 +55,36 @@ consent-prompt: |-
   &8&m─────────────────────────────────────
 consent-accepted: "{prefix}&aDanke! Du kannst jetzt loslegen."
 consent-not-pending: "{prefix}&7Du hast bereits zugestimmt — nichts zu tun."
-consent-blocked-command: "{prefix}&cBitte zuerst &f/eternal accept &coder &f/eternal decline&c benutzen."
+consent-blocked-command: "{prefix}&cBitte zuerst die Datenschutz-GUI bestaetigen."
+
+# --- Consent-GUI ---
+# Wird beim ersten Join geoeffnet. Ein Klick auf Akzeptieren/Ablehnen
+# entscheidet — Schliessen ohne Auswahl reopened die GUI sofort.
+consent-gui-title: "&dDatenschutz &8» &fZustimmung"
+consent-gui-accept-name: "&a&lAkzeptieren"
+consent-gui-accept-lore: |-
+  &7Du erlaubst uns, deine
+  &7Daten gemaess der Erklaerung
+  &7zu speichern.
+  &7
+  &eKlick zum Bestaetigen.
+consent-gui-decline-name: "&c&lAblehnen"
+consent-gui-decline-lore: |-
+  &7Du wirst gekickt und alle
+  &7bereits gespeicherten Daten
+  &7werden geloescht (inkl. CloudNet).
+  &7
+  &eKlick zum Ablehnen.
+consent-gui-info-name: "&fHallo &e{player}&8, &fwillkommen!"
+consent-gui-info-lore: |-
+  &7Wir verarbeiten:
+  &8 • &fName + UUID  &8(Strafen/Reports)
+  &8 • &fIP-Adresse   &8(Multi-Account-Schutz)
+  &8 • &fSpielzeit    &8(Sessions)
+  &8 • &fChat-/Hit-/Replay-Daten bei Reports
+  &7
+  &7Volle Erklaerung:
+  &b https://eternal.example/datenschutz
 consent-declined-kick: |-
   &dEternal &8»
 

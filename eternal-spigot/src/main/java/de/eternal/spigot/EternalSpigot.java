@@ -65,6 +65,7 @@ public final class EternalSpigot extends JavaPlugin {
     private ApiBridge apiBridge;
     private ActionPoller actionPoller;
     private de.eternal.spigot.consent.ConsentService consentService;
+    private de.eternal.spigot.consent.ConsentGui consentGui;
     private ConnectionListener connectionListener;
 
     @Override
@@ -274,9 +275,16 @@ public final class EternalSpigot extends JavaPlugin {
     private void registerListeners() {
         // Consent first so the freeze handlers are in the listener
         // chain before the actual recording/data-handling listeners.
+        // The GUI is the primary prompt — chat-based /eternal accept
+        // still works as a fallback (and is unreachable through the
+        // Bungee proxy, which is why we moved to a click GUI in the
+        // first place).
         this.consentService = new de.eternal.spigot.consent.ConsentService(this, storage);
+        this.consentGui = new de.eternal.spigot.consent.ConsentGui(this);
         getServer().getPluginManager().registerEvents(
                 new de.eternal.spigot.consent.ConsentGuardListener(this), this);
+        getServer().getPluginManager().registerEvents(
+                new de.eternal.spigot.consent.ConsentGuiListener(this, consentGui), this);
 
         this.connectionListener = new ConnectionListener(this);
         getServer().getPluginManager().registerEvents(connectionListener, this);
@@ -305,5 +313,6 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull BungeeChannelBridge bungeeBridge() { return bungeeBridge; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }
     public @NotNull de.eternal.spigot.consent.ConsentService consent() { return consentService; }
+    public @NotNull de.eternal.spigot.consent.ConsentGui consentGui() { return consentGui; }
     public @NotNull ConnectionListener connectionListener() { return connectionListener; }
 }

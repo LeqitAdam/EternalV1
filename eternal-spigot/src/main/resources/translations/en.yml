@@ -38,7 +38,35 @@ consent-prompt: |-
   &8&m─────────────────────────────────────
 consent-accepted: "{prefix}&aThanks! You can play now."
 consent-not-pending: "{prefix}&7You've already accepted — nothing to do."
-consent-blocked-command: "{prefix}&cPlease run &f/eternal accept &cor &f/eternal decline &cfirst."
+consent-blocked-command: "{prefix}&cPlease confirm the privacy GUI first."
+
+# --- Consent GUI ---
+# Opened on first join. Click accept/decline; closing without picking
+# re-opens the GUI immediately.
+consent-gui-title: "&dPrivacy &8» &fConsent required"
+consent-gui-accept-name: "&a&lAccept"
+consent-gui-accept-lore: |-
+  &7You agree to let us store
+  &7your data as described.
+  &7
+  &eClick to confirm.
+consent-gui-decline-name: "&c&lDecline"
+consent-gui-decline-lore: |-
+  &7You will be kicked and any
+  &7data we already had on you
+  &7will be erased (incl. CloudNet).
+  &7
+  &eClick to decline.
+consent-gui-info-name: "&fHi &e{player}&8, &fwelcome!"
+consent-gui-info-lore: |-
+  &7We process:
+  &8 • &fName + UUID  &8(punishments/reports)
+  &8 • &fIP address   &8(multi-account check)
+  &8 • &fPlay time    &8(sessions)
+  &8 • &fChat/hit/replay data on reports
+  &7
+  &7Full policy:
+  &b https://eternal.example/privacy
 consent-declined-kick: |-
   &dEternal &8»
 

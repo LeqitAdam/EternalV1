@@ -29,6 +29,11 @@ public final class EternalCommand extends Command {
         switch (args[0].toLowerCase(Locale.ROOT)) {
             case "reload" -> handleReload(sender);
             case "link" -> handleLink(sender, args);
+            // accept/decline live on the Spigot side as a GUI now —
+            // Bungee can't open inventories. Send the player a tiny
+            // hint instead of the generic "unknown action" message
+            // so they don't think the system's broken.
+            case "accept", "decline" -> plugin.messages().send(sender, "consent-use-gui");
             default -> plugin.messages().send(sender, "unknown-action", "action", args[0]);
         }
     }
