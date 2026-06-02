@@ -67,10 +67,12 @@ public final class ConnectionListener implements Listener {
         // the same path we'd normally run on join.
         if (!plugin.consent().hasConsent(p.getUniqueId())) {
             plugin.consent().markPending(p.getUniqueId());
-            // Prompt is sent in a delayed task so the chat-plugin
-            // formatters and the player's own chat have settled first.
+            // Open the consent GUI in a delayed task so the player's
+            // own client + any chat-plugin formatters have settled.
+            // The GUI is the primary path; clicking inside it never
+            // leaves the spigot, so Bungee can't intercept it.
             plugin.getServer().getScheduler().runTaskLater(plugin,
-                    () -> sendConsentPrompt(p), 20L);
+                    () -> plugin.consentGui().open(p), 20L);
             return;
         }
         runPostConsent(p);
