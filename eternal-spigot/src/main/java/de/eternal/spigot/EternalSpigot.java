@@ -312,6 +312,9 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull de.eternal.spigot.integration.ReplayBridge replayBridge() { return replayBridge; }
     public @NotNull BungeeChannelBridge bungeeBridge() { return bungeeBridge; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }
+    /** Nullable — only set when CloudPerms is present. The ActionPoller's
+     *  PERM_REFRESH handler null-checks before re-applying. */
+    public de.eternal.spigot.listener.@org.jetbrains.annotations.Nullable CloudNetBridgeListener cloudNetBridge() { return cloudNetBridge; }
     public @NotNull de.eternal.spigot.consent.ConsentService consent() { return consentService; }
     public @NotNull de.eternal.spigot.consent.ConsentGui consentGui() { return consentGui; }
     public @NotNull ConnectionListener connectionListener() { return connectionListener; }

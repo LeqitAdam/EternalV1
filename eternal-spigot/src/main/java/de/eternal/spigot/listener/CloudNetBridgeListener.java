@@ -45,6 +45,13 @@ public final class CloudNetBridgeListener implements Listener {
         for (Player p : Bukkit.getOnlinePlayers()) applyTo(p);
     }
 
+    /** Public re-apply for one player — called by the ActionPoller's
+     *  PERM_REFRESH handler after a web-driven permission/rank change so
+     *  the player sees the new {@code eternal.*} perms without rejoining. */
+    public void reapply(@NotNull Player player) {
+        applyTo(player);
+    }
+
     public void detachAll() {
         for (PermissionAttachment a : attachments.values()) {
             try { a.remove(); } catch (Exception ignored) {}
@@ -68,20 +75,59 @@ public final class CloudNetBridgeListener implements Listener {
     }
 
     private void applyTo(@NotNull Player player) {
-        var groups = cloudPerms.groupsOf(player.getUniqueId());
+        UUID uuid = player.getUniqueId();
+        var groups = cloudPerms.groupsOf(uuid);
         var resolution = mapping.resolve(groups);
 
         // Drop any previous attachment so changing groups while online cleanly
         // re-applies rather than stacking up.
-        PermissionAttachment prev = attachments.remove(player.getUniqueId());
+        PermissionAttachment prev = attachments.remove(uuid);
         if (prev != null) {
             try { prev.remove(); } catch (Exception ignored) {}
         }
 
         PermissionAttachment att = player.addAttachment(plugin);
+
+        // Layer 1 — config.yml group mapping (legacy default). Lowest
+        // precedence; the DB grants below override these.
         for (String perm : resolution.permissions()) att.setPermission(perm, true);
         String tierPerm = "eternal.tier." + Math.max(0, Math.min(100, resolution.tier()));
         att.setPermission(tierPerm, true);
-        attachments.put(player.getUniqueId(), att);
+
+        // Layer 2 + 3 — the web-managed DB grants. This is what makes a
+        // permission edited in the dashboard actually take effect
+        // in-game. Role grants (for the role bound to the player's
+        // CloudNet group) then user overrides on top. setPermission with
+        // an explicit false produces a real deny that beats the config
+        // mapping's allow, so "deny X for this one mod" works.
+        applyDbGrants(uuid, groups, att);
+
+        attachments.put(uuid, att);
+    }
+
+    /** Reads eternal_role_permissions (via the group→role mapping) and
+     *  eternal_user_permissions and writes them onto the attachment.
+     *  Fail-soft: any storage hiccup leaves the config-mapping perms
+     *  intact rather than throwing during a join. */
+    private void applyDbGrants(@NotNull UUID uuid, @NotNull java.util.List<String> groups,
+                               @NotNull PermissionAttachment att) {
+        if (!(plugin.storage() instanceof de.eternal.core.permission.PermissionStorage perms)) return;
+        try {
+            // Role layer: find the role whose mcGroupName matches any of
+            // the player's CloudNet groups, apply its grants.
+            for (String group : groups) {
+                var role = perms.findRoleByMcGroup(group);
+                if (role.isEmpty()) continue;
+                for (var grant : perms.rolePermissions(role.get().name()).values()) {
+                    att.setPermission(grant.permissionKey(), grant.granted());
+                }
+            }
+            // User layer: per-player overrides win over role + config.
+            for (var grant : perms.userPermissions(uuid).values()) {
+                att.setPermission(grant.permissionKey(), grant.granted());
+            }
+        } catch (Exception ex) {
+            plugin.getLogger().warning("applyDbGrants failed for " + uuid + ": " + ex.getMessage());
+        }
     }
 }

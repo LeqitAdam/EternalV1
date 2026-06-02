@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { authGuard, anonGuard } from './core/auth.guard';
 import { adminGuard, staffGuard } from './core/role.guard';
+// adminGuard + staffGuard both used below.
 
 export const routes: Routes = [
   {
@@ -74,6 +75,20 @@ export const routes: Routes = [
         path: 'active-users',
         canActivate: [staffGuard],
         loadComponent: () => import('./pages/active-users/active-users.component').then(m => m.ActiveUsersComponent)
+      },
+      {
+        // Permission + role management. adminGuard (client) +
+        // eternal.web.admin (server) both gate it.
+        path: 'admin/permissions',
+        canActivate: [adminGuard],
+        loadComponent: () => import('./pages/admin/permissions.component').then(m => m.PermissionsComponent)
+      },
+      {
+        // User management — search all known players (offline incl.),
+        // edit per-user permission overrides, change CloudNet rank.
+        path: 'admin/users',
+        canActivate: [adminGuard],
+        loadComponent: () => import('./pages/admin/admin-users.component').then(m => m.AdminUsersComponent)
       }
     ]
   },

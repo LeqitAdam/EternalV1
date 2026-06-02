@@ -66,8 +66,27 @@ public final class ActionPoller {
             case "DELETE_REPLAY" -> deleteReplay(action.payload());
             case "END_CAPTURE" -> endCapture(action.payload());
             case "BROADCAST" -> broadcast(modUuid, action.payload());
+            case "PERM_REFRESH" -> permRefresh(modUuid);
             default -> plugin.getLogger().warning("Unknown action type: " + action.type());
         }
+    }
+
+    /** Re-applies the permission attachment for an online player after a
+     *  web-driven permission / rank change. The action is queued against
+     *  the affected player's own UUID, so {@code modUuid} here IS that
+     *  player. No-op when CloudPerms (and thus the bridge) isn't present
+     *  — in that setup eternal.* perms come from a normal perms plugin
+     *  and the dashboard grants are advisory only. */
+    private void permRefresh(@NotNull UUID playerUuid) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            Player p = Bukkit.getPlayer(playerUuid);
+            if (p == null) return;
+            var bridge = plugin.cloudNetBridge();
+            if (bridge != null) {
+                bridge.reapply(p);
+                plugin.getLogger().info("PERM_REFRESH: re-applied permissions for " + p.getName());
+            }
+        });
     }
 
     /** Web-ban/-mute fanout: payload carries a fully formatted broadcast

@@ -36,6 +36,33 @@ public interface EternalStorage extends AutoCloseable {
         recordProfile(uuid, name, address, lastTier, lastGroupName, "");
     }
 
+    /** Updates ONLY the cached group name on an existing profile row,
+     *  without touching name/address/tier/displayName. Used after a
+     *  web-driven CloudNet group change so the dashboard's role
+     *  resolution + lookup reflect the new rank before the player
+     *  rejoins. No-op when the profile doesn't exist yet. */
+    void updateProfileGroup(@NotNull UUID uuid, @NotNull String groupName);
+
+    /** Caches the FULL set of CloudNet groups a player is in (not just
+     *  the primary). Comma-joined in one column. Powers the admin UI's
+     *  "which ranks does this user already have" view so add/remove
+     *  doesn't double up. */
+    void updateProfileGroups(@NotNull UUID uuid, @NotNull List<String> groups);
+
+    /** The cached full group list for a player, or empty when we've
+     *  never seen them on the new recorder. Falls back to the primary
+     *  {@code lastGroupName} at the call site. */
+    @NotNull List<String> profileGroups(@NotNull UUID uuid);
+
+    /** Replaces the cached list of all CloudNet groups in the system.
+     *  Synced periodically by the Bungee admin poller (the only node
+     *  with guaranteed driver access). Each entry is (name, sortId). */
+    void replaceCloudGroups(@NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> groups);
+
+    /** The cached available-group list for the dashboard, newest sync,
+     *  highest sortId first. */
+    @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> listCloudGroups();
+
     @NotNull Optional<PlayerProfile> findProfile(@NotNull UUID uuid);
 
     @NotNull Optional<PlayerProfile> findProfileByName(@NotNull String name);
@@ -176,6 +203,13 @@ public interface EternalStorage extends AutoCloseable {
     long queueAction(@NotNull String type, @NotNull UUID targetStaff, @NotNull String payload);
 
     @NotNull List<ActionEntry> pendingActionsFor(@NotNull UUID targetStaff);
+
+    /** All un-consumed actions of one {@code type}, regardless of which
+     *  target UUID they carry. Used by the Bungee-side admin poller for
+     *  actions that aren't bound to an online player — e.g. changing an
+     *  OFFLINE player's CloudNet group, which any node with driver access
+     *  can apply centrally. */
+    @NotNull List<ActionEntry> pendingActionsByType(@NotNull String type);
 
     boolean consumeAction(long id);
 

@@ -3,8 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { API_CONFIG } from './api.config';
 import {
-  LinkInit, LinkStatus, Me, PlayerLookup, Punishment, Report, ReportPage,
-  ReportStatusFilter, StaffStat, UnbanAppeal
+  AdminUser, LinkInit, LinkStatus, Me, PermissionRegistry, PlayerLookup, Punishment,
+  Report, ReportPage, ReportStatusFilter, Role, StaffStat, UnbanAppeal
 } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -141,5 +141,56 @@ export class ApiService {
   }
   denyAppeal(id: number, reason: string) {
     return this.http.post<{ ok: boolean }>(this.url(`/appeals/${id}/deny`), { reason });
+  }
+
+  /* --- admin: permission engine -------------------------------------- */
+
+  permissionRegistry(): Observable<PermissionRegistry> {
+    return this.http.get<PermissionRegistry>(this.url('/admin/permissions/registry'));
+  }
+  listRoles(): Observable<{ roles: Role[] }> {
+    return this.http.get<{ roles: Role[] }>(this.url('/admin/roles'));
+  }
+  upsertRole(name: string, body: { displayName: string; mcGroupName: string; sortOrder: number; color: string }) {
+    return this.http.put<{ ok: boolean; created: boolean }>(this.url(`/admin/roles/${encodeURIComponent(name)}`), body);
+  }
+  deleteRole(name: string) {
+    return this.http.delete<{ ok: boolean }>(this.url(`/admin/roles/${encodeURIComponent(name)}`));
+  }
+  setRolePermission(name: string, key: string, granted: boolean) {
+    return this.http.put<{ ok: boolean }>(
+      this.url(`/admin/roles/${encodeURIComponent(name)}/permissions/${encodeURIComponent(key)}`), { granted });
+  }
+  clearRolePermission(name: string, key: string) {
+    return this.http.delete<{ ok: boolean; cleared: boolean }>(
+      this.url(`/admin/roles/${encodeURIComponent(name)}/permissions/${encodeURIComponent(key)}`));
+  }
+
+  /* --- admin: user management ---------------------------------------- */
+
+  adminListUsers(q?: string): Observable<{ users: AdminUser[] }> {
+    const qs = q && q.trim().length >= 2 ? `?q=${encodeURIComponent(q.trim())}` : '';
+    return this.http.get<{ users: AdminUser[] }>(this.url('/admin/users' + qs));
+  }
+  adminGetUser(uuid: string): Observable<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }>; groups: string[] }> {
+    return this.http.get<{ user: AdminUser; overrides: Array<{ key: string; granted: boolean; updatedAt: number; updatedBy: string }>; groups: string[] }>(
+      this.url(`/admin/users/${uuid}`));
+  }
+  /** Synced CloudNet group catalogue (name + sortId + &-colour),
+   *  lowest sortId (= highest rank) first. */
+  adminCloudGroups(): Observable<{ groups: Array<{ name: string; sortId: number; color: string }> }> {
+    return this.http.get<{ groups: Array<{ name: string; sortId: number; color: string }> }>(this.url('/admin/cloud-groups'));
+  }
+  setUserPermission(uuid: string, key: string, granted: boolean) {
+    return this.http.put<{ ok: boolean }>(
+      this.url(`/admin/users/${uuid}/permissions/${encodeURIComponent(key)}`), { granted });
+  }
+  clearUserPermission(uuid: string, key: string) {
+    return this.http.delete<{ ok: boolean; cleared: boolean }>(
+      this.url(`/admin/users/${uuid}/permissions/${encodeURIComponent(key)}`));
+  }
+  changeUserGroup(uuid: string, group: string, op: 'SET' | 'ADD' | 'REMOVE' = 'SET') {
+    return this.http.put<{ ok: boolean; queued: boolean; op: string; group: string }>(
+      this.url(`/admin/users/${uuid}/group`), { group, op });
   }
 }

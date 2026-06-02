@@ -53,6 +53,13 @@ $eternal-theme: mat.define-dark-theme((
 html, body { height: 100%; margin: 0; }
 body { font-family: 'Inter', system-ui, sans-serif; }
 
+/* Preflight is off, so native buttons + clickable elements don't get
+   the pointer cursor automatically. Restore it for anything the user
+   is meant to click. Disabled buttons keep the default arrow. */
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]),
+a, summary, label[for] { cursor: pointer; }
+button:disabled { cursor: default; }
+
 .mat-mdc-card {
   background-color: rgb(28 28 37) !important;
 }

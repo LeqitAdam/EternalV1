@@ -243,6 +243,8 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
             migrateAddReportReplayId(c);
             createPermissionTables(c);
             createConsentTable(c);
+            createCloudGroupsTable(c);
+            migrateAddProfileGroups(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -286,6 +288,121 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
         } catch (SQLException ex) {
             throw new StorageException("recordProfile failed", ex);
         }
+    }
+
+    @Override
+    public void updateProfileGroup(@NotNull UUID uuid, @NotNull String groupName) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_profiles SET last_group_name = ? WHERE uuid = ?")) {
+            ps.setString(1, groupName);
+            ps.setString(2, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("updateProfileGroup failed", ex);
+        }
+    }
+
+    @Override
+    public void updateProfileGroups(@NotNull UUID uuid, @NotNull List<String> groups) {
+        // Comma-join. Group names never contain commas in CloudNet, so a
+        // plain join is safe and keeps the column human-readable.
+        String joined = String.join(",", groups);
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_profiles SET last_groups = ? WHERE uuid = ?")) {
+            ps.setString(1, joined);
+            ps.setString(2, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] updateProfileGroups failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public @NotNull List<String> profileGroups(@NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT last_groups FROM eternal_profiles WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return List.of();
+                String joined = rs.getString("last_groups");
+                if (joined == null || joined.isBlank()) return List.of();
+                return java.util.Arrays.stream(joined.split(","))
+                        .map(String::trim).filter(s -> !s.isEmpty()).toList();
+            }
+        } catch (SQLException ex) {
+            // Column may not exist on a half-migrated DB — treat as empty.
+            return List.of();
+        }
+    }
+
+    @Override
+    public void replaceCloudGroups(
+            @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> groups) {
+        long now = System.currentTimeMillis();
+        try (Connection c = conn()) {
+            // Full replace: clear then insert. Group set is small (dozens),
+            // so a truncate+insert is simpler than a diff and keeps the
+            // table exactly in sync with CloudNet each cycle.
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM eternal_cloud_groups");
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO eternal_cloud_groups (name, sort_id, color, synced_at) VALUES (?, ?, ?, ?)")) {
+                for (var g : groups) {
+                    ps.setString(1, g.name());
+                    ps.setInt(2, g.sortId());
+                    ps.setString(3, g.color());
+                    ps.setLong(4, now);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] replaceCloudGroups failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> listCloudGroups() {
+        // Ascending sortId — lowest = highest rank, shown first.
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT name, sort_id, color FROM eternal_cloud_groups ORDER BY sort_id ASC, name ASC");
+             ResultSet rs = ps.executeQuery()) {
+            List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> out = new ArrayList<>();
+            while (rs.next()) {
+                out.add(new de.eternal.core.integration.CloudPermsAccess.GroupInfo(
+                        rs.getString("name"), rs.getInt("sort_id"),
+                        rs.getString("color") == null ? "" : rs.getString("color")));
+            }
+            return out;
+        } catch (SQLException ex) {
+            return List.of();
+        }
+    }
+
+    private void createCloudGroupsTable(@NotNull Connection c) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_cloud_groups (
+                      name VARCHAR(64) PRIMARY KEY,
+                      sort_id INTEGER NOT NULL DEFAULT 0,
+                      color VARCHAR(16) NOT NULL DEFAULT '',
+                      synced_at BIGINT NOT NULL
+                    )
+                    """);
+        }
+        // Idempotent add for DBs created before the colour column existed.
+        runIdempotent(c, "ALTER TABLE eternal_cloud_groups ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT ''");
+    }
+
+    private void migrateAddProfileGroups(@NotNull Connection c) {
+        runIdempotent(c, isSqlite()
+                ? "ALTER TABLE eternal_profiles ADD COLUMN last_groups TEXT NOT NULL DEFAULT ''"
+                : "ALTER TABLE eternal_profiles ADD COLUMN last_groups TEXT");
     }
 
     /** Idempotent ALTER for legacy DBs that pre-date tier tracking. */
@@ -1308,6 +1425,34 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
     }
 
     @Override
+    public @NotNull List<ActionEntry> pendingActionsByType(@NotNull String type) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_actions WHERE type = ? AND consumed_at IS NULL "
+                             + "ORDER BY created_at ASC")) {
+            ps.setString(1, type);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ActionEntry> out = new ArrayList<>();
+                while (rs.next()) {
+                    long consumed = rs.getLong("consumed_at");
+                    boolean consumedNull = rs.wasNull();
+                    out.add(new ActionEntry(
+                            rs.getLong("id"),
+                            rs.getString("type"),
+                            UUID.fromString(rs.getString("target_staff_uuid")),
+                            rs.getString("payload"),
+                            Instant.ofEpochMilli(rs.getLong("created_at")),
+                            consumedNull ? null : Instant.ofEpochMilli(consumed)
+                    ));
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("pendingActionsByType failed", ex);
+        }
+    }
+
+    @Override
     public boolean consumeAction(long id) {
         try (Connection c = conn();
              PreparedStatement ps = c.prepareStatement(
@@ -1462,6 +1607,24 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
      * auto-complete; matches the start of {@code name} (case-insensitive)
      * and the start of the UUID string. Capped to {@code limit}.
      */
+    /** Most-recently-seen profiles, no query filter. Powers the admin
+     *  user-management list when the search box is empty so the admin
+     *  sees something to act on immediately. */
+    public @NotNull List<de.eternal.core.model.PlayerProfile> recentProfiles(int limit) {
+        String sql = "SELECT uuid, name, first_seen, last_seen, last_address, last_tier, last_group_name, last_display_name "
+                + "FROM eternal_profiles ORDER BY last_seen DESC LIMIT ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, Math.max(1, Math.min(100, limit)));
+            try (ResultSet rs = ps.executeQuery()) {
+                List<de.eternal.core.model.PlayerProfile> out = new ArrayList<>();
+                while (rs.next()) out.add(readProfile(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("recentProfiles failed", ex);
+        }
+    }
+
     public @NotNull List<de.eternal.core.model.PlayerProfile> searchProfiles(@NotNull String query, int limit) {
         if (query.isBlank()) return List.of();
         String like = query.toLowerCase(java.util.Locale.ROOT) + "%";

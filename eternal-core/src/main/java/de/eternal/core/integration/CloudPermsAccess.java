@@ -98,6 +98,128 @@ public final class CloudPermsAccess {
         return 0;
     }
 
+    /**
+     * Adds {@code group} to the CloudNet permission user. Works for
+     * offline players too — CloudNet's permission store is central, not
+     * per-server. Returns true on success.
+     *
+     * <p>Flow (reflective, CN3 + CN4): resolve the PermissionUser,
+     * call {@code addGroup(String)} on it, then {@code updateUser(user)}
+     * to persist. Both versions share this shape; we tolerate the
+     * method-name drift the same way the read path does.</p>
+     */
+    public boolean addUserGroup(@NotNull UUID uuid, @NotNull String group) {
+        return mutateUserGroups(uuid, "addGroup", group);
+    }
+
+    /** Removes {@code group} from the CloudNet permission user. */
+    public boolean removeUserGroup(@NotNull UUID uuid, @NotNull String group) {
+        return mutateUserGroups(uuid, "removeGroup", group);
+    }
+
+    /**
+     * "Change rank" in the intuitive sense: drop every group the user is
+     * currently in and put them into exactly {@code group}. Implemented
+     * as removeGroup(each existing) + addGroup(group) on a single user
+     * object, then one updateUser. Returns true when the update was
+     * pushed (even if the user was already only in that group).
+     */
+    public boolean setPrimaryGroup(@NotNull UUID uuid, @NotNull String group) {
+        if (!available()) return false;
+        try {
+            Object user = userMethod.invoke(management, uuid);
+            if (user == null) {
+                logger.warning("setPrimaryGroup: CloudNet has no user row for " + uuid);
+                return false;
+            }
+            // Current groups → remove all, then add the new one.
+            Object groupsRaw = groupNamesMethod.invoke(user);
+            Method removeGroup = findMethod(user.getClass(), "removeGroup", String.class);
+            Method addGroup = findMethod(user.getClass(), "addGroup", String.class);
+            if (removeGroup == null || addGroup == null) {
+                logger.warning("setPrimaryGroup: PermissionUser lacks add/removeGroup methods");
+                return false;
+            }
+            if (groupsRaw instanceof java.util.Collection<?> col) {
+                for (Object g : new java.util.ArrayList<>(col)) {
+                    if (!String.valueOf(g).equalsIgnoreCase(group)) {
+                        removeGroup.invoke(user, String.valueOf(g));
+                    }
+                }
+            }
+            addGroup.invoke(user, group);
+            return pushUserUpdate(user);
+        } catch (Throwable t) {
+            logger.warning("setPrimaryGroup failed for " + uuid + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Shared add/remove helper. {@code op} is "addGroup" or
+     *  "removeGroup". Resolves the user, invokes the op, pushes the
+     *  update back. */
+    private boolean mutateUserGroups(@NotNull UUID uuid, @NotNull String op, @NotNull String group) {
+        if (!available()) return false;
+        try {
+            Object user = userMethod.invoke(management, uuid);
+            if (user == null) {
+                logger.warning(op + ": CloudNet has no user row for " + uuid);
+                return false;
+            }
+            Method m = findMethod(user.getClass(), op, String.class);
+            if (m == null) {
+                logger.warning(op + ": PermissionUser has no " + op + "(String) method");
+                return false;
+            }
+            m.invoke(user, group);
+            return pushUserUpdate(user);
+        } catch (Throwable t) {
+            logger.warning(op + " failed for " + uuid + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Persists a modified PermissionUser back to CloudNet. CN3 + CN4
+     *  both expose {@code updateUser(user)}; CN4 also has an async
+     *  variant we don't need. */
+    private boolean pushUserUpdate(@NotNull Object user) {
+        for (String mname : new String[]{"updateUser", "updatePermissionUser"}) {
+            try {
+                Method m = management.getClass().getMethod(mname, user.getClass().getInterfaces().length > 0
+                        ? user.getClass().getInterfaces()[0] : user.getClass());
+                m.invoke(management, user);
+                return true;
+            } catch (NoSuchMethodException ignored) {
+                // Fall through to the param-scan variant below.
+            } catch (Throwable t) {
+                logger.warning("pushUserUpdate via " + mname + " failed: " + t.getMessage());
+                return false;
+            }
+        }
+        // Last resort: scan for any single-arg method named updateUser
+        // whose parameter the user is assignable to (covers interface
+        // vs impl-class mismatches across CN versions).
+        for (Method m : management.getClass().getMethods()) {
+            if (!m.getName().equals("updateUser") || m.getParameterCount() != 1) continue;
+            if (!m.getParameterTypes()[0].isInstance(user)) continue;
+            try {
+                m.invoke(management, user);
+                return true;
+            } catch (Throwable t) {
+                logger.warning("pushUserUpdate scan failed: " + t.getMessage());
+                return false;
+            }
+        }
+        logger.warning("pushUserUpdate: no updateUser method matched the user type");
+        return false;
+    }
+
+    private static @org.jetbrains.annotations.Nullable Method findMethod(
+            @NotNull Class<?> type, @NotNull String name, @NotNull Class<?>... params) {
+        try { return type.getMethod(name, params); }
+        catch (NoSuchMethodException ex) { return null; }
+    }
+
     public @NotNull List<String> groupsOf(@NotNull UUID uuid) {
         if (!available()) return Collections.emptyList();
         try {
@@ -113,6 +235,95 @@ public final class CloudPermsAccess {
             logger.warning("CloudPerms lookup failed for " + uuid + ": " + t.getMessage());
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * Every group defined in CloudNet, as {@code (name, sortId, color)}
+     * triples, sorted by ASCENDING sortId — CloudNet's convention is
+     * lower sortId = higher rank, so the highest rank (e.g. Owner) comes
+     * first. Empty when CloudNet isn't reachable.
+     *
+     * <p>Reflective: tries {@code groups()} (CN4) then {@code getGroups()}
+     * (CN3), each returning a {@code Collection<PermissionGroup>}; reads
+     * name + potency + colour off each element.</p>
+     */
+    public @NotNull List<GroupInfo> allGroups() {
+        if (!available()) return Collections.emptyList();
+        Object groupsRaw = null;
+        for (String mname : new String[]{"groups", "getGroups"}) {
+            try {
+                Method m = management.getClass().getMethod(mname);
+                groupsRaw = m.invoke(management);
+                if (groupsRaw != null) break;
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable t) {
+                logger.warning("CloudPerms allGroups via " + mname + " failed: " + t.getMessage());
+            }
+        }
+        if (!(groupsRaw instanceof java.util.Collection<?> col)) return Collections.emptyList();
+        List<GroupInfo> out = new java.util.ArrayList<>(col.size());
+        for (Object group : col) {
+            if (group == null) continue;
+            String name = readGroupName(group);
+            if (name == null || name.isEmpty()) continue;
+            out.add(new GroupInfo(name, readPotency(group), readGroupColor(group)));
+        }
+        // Ascending sortId — lowest number is the highest rank, first.
+        out.sort((a, b) -> Integer.compare(a.sortId(), b.sortId()));
+        return out;
+    }
+
+    /** A CloudNet group surfaced to the dashboard. {@code color} is a
+     *  Minecraft {@code &}-code derived from the group's colour/prefix,
+     *  or empty when none could be read. */
+    public record GroupInfo(@NotNull String name, int sortId, @NotNull String color) {
+        /** Back-compat 2-arg constructor — colour defaults to empty. */
+        public GroupInfo(@NotNull String name, int sortId) { this(name, sortId, ""); }
+    }
+
+    /** Pulls a usable &amp;-colour code off a CloudNet group. Tries the
+     *  explicit {@code color()} first, then sniffs the last colour code
+     *  out of {@code prefix()} (e.g. "&4&lOwner " → "&4"). Empty when
+     *  neither yields something. */
+    private static @NotNull String readGroupColor(@NotNull Object group) {
+        // 1) explicit color() / getColor() — usually already an &-code.
+        for (String mname : new String[]{"color", "getColor"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v != null) {
+                    String s = String.valueOf(v).trim();
+                    if (!s.isEmpty()) return s.startsWith("&") || s.startsWith("§")
+                            ? s.replace('§', '&') : "&" + s;
+                }
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        // 2) last colour code in the prefix.
+        for (String mname : new String[]{"prefix", "getPrefix"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v == null) continue;
+                String prefix = String.valueOf(v).replace('§', '&');
+                int last = prefix.lastIndexOf('&');
+                if (last >= 0 && last + 1 < prefix.length()) {
+                    char c = Character.toLowerCase(prefix.charAt(last + 1));
+                    if ("0123456789abcdef".indexOf(c) >= 0) return "&" + c;
+                }
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return "";
+    }
+
+    private static @org.jetbrains.annotations.Nullable String readGroupName(@NotNull Object group) {
+        for (String mname : new String[]{"name", "getName"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v != null) return String.valueOf(v);
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return null;
     }
 
     private void bootstrap() {
