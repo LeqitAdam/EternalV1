@@ -1,0 +1,102 @@
+# Eternal Party — deutsche Texte. Alle Strings frei anpassbar.
+# Platzhalter stehen in {klammern}. &-Farbcodes werden unterstuetzt.
+prefix: "&8[&dParty&8] &7"
+
+# --- Hotbar-Item -----------------------------------------------------------
+item-party-head-name: "&dParty &8» &7Rechtsklick"
+item-party-head-lore: |-
+  &7Oeffne das Party-Menue.
+  &7Triff einen Spieler damit:
+  &8• &7Freund &8→ &dParty-Einladung
+  &8• &7Fremder &8→ &dFreundschaftsanfrage
+
+# --- Party-Hauptmenue ------------------------------------------------------
+gui-party-title: "&dParty-Menue"
+gui-party-create-name: "&aParty erstellen"
+gui-party-create-lore: "&7Gruende eine neue Party."
+gui-party-info-name: "&dDeine Party"
+gui-party-info-lore: |-
+  &7Leader&8: &f{leader}
+  &7Mitglieder&8: &f{count}&8/&f{max}
+gui-party-friends-name: "&bFreunde einladen"
+gui-party-friends-lore: "&7Lade deine Freunde in die Party ein."
+gui-party-members-name: "&eMitglieder"
+gui-party-members-lore: "&7Zeige alle Party-Mitglieder."
+gui-party-leave-name: "&cParty verlassen"
+gui-party-leave-lore: "&7Verlasse deine aktuelle Party."
+gui-party-disband-name: "&4Party aufloesen"
+gui-party-disband-lore: "&7Loese die Party als Leader auf."
+gui-party-settings-name: "&6Einstellungen"
+gui-party-settings-lore: "&7Wer darf dich einladen?"
+
+# --- Freunde-Menue ---------------------------------------------------------
+gui-friends-title: "&bDeine Freunde"
+gui-friends-empty-name: "&7Noch keine Freunde"
+gui-friends-empty-lore: "&7Triff Spieler mit dem Party-Kopf,&7 um Anfragen zu senden."
+gui-friend-entry-lore: |-
+  &7Status&8: {status}
+  &8» &7Linksklick&8: &dParty-Einladung
+  &8» &7Rechtsklick&8: &centfernen
+gui-friend-online: "&aOnline"
+gui-friend-offline: "&8Offline"
+
+# --- Mitglieder-Menue ------------------------------------------------------
+gui-members-title: "&eParty-Mitglieder"
+gui-member-entry-lore: "&7Rolle&8: &f{role}"
+
+# --- Einstellungen-Menue ---------------------------------------------------
+gui-settings-title: "&6Party-Einstellungen"
+gui-settings-friend-requests-name: "&bFreundschaftsanfragen&8: {state}"
+gui-settings-friend-requests-lore: "&7Klick zum Umschalten."
+gui-settings-party-invites-name: "&dParty-Einladungen&8: {state}"
+gui-settings-party-invites-lore: "&7Klick zum Umschalten."
+gui-state-on: "&aAN"
+gui-state-off: "&cAUS"
+gui-back-name: "&7Zurueck"
+
+# --- Party-Chat ------------------------------------------------------------
+party-created: "{prefix}&aParty erstellt. Lade Freunde ein!"
+party-already-in: "{prefix}&cDu bist bereits in einer Party."
+party-disbanded: "{prefix}&cDie Party wurde aufgeloest."
+party-left: "{prefix}&7Du hast die Party verlassen."
+party-not-in-party: "{prefix}&cDu bist in keiner Party."
+party-only-leader: "{prefix}&cNur der Leader darf das."
+party-full: "{prefix}&cDie Party ist voll."
+party-self: "{prefix}&cDich selbst geht nicht."
+party-target-in-party: "{prefix}&c{target} ist bereits in einer Party."
+party-invite-sent: "{prefix}&7Einladung an &f{target} &7gesendet."
+party-invite-received: "{prefix}&f{inviter} &7hat dich in die Party eingeladen. &8» &a&l[Annehmen]"
+party-invite-disabled: "{prefix}&c{target} hat Party-Einladungen deaktiviert."
+party-invite-none: "{prefix}&cKeine offene Einladung."
+party-invite-denied: "{prefix}&7Einladung abgelehnt."
+party-invite-expired: "{prefix}&cDiese Einladung ist abgelaufen."
+party-invite-accept-self: "{prefix}&cDu kannst dich nicht selbst einladen."
+party-join-broadcast: "{prefix}&f{player} &aist der Party beigetreten."
+party-leave-broadcast: "{prefix}&f{player} &7hat die Party verlassen."
+party-kicked-you: "{prefix}&cDu wurdest aus der Party entfernt."
+party-kick-broadcast: "{prefix}&f{player} &7wurde aus der Party entfernt."
+party-member-not-found: "{prefix}&cDieser Spieler ist nicht in deiner Party."
+party-list-header: "{prefix}&7Party &8(&f{count}&8/&f{max}&8)&7:"
+party-list-entry: "&8• &f{name} &8— &7{role}"
+party-leader-transferred: "{prefix}&f{player} &7ist jetzt Leader."
+party-usage: "{prefix}&7/party [accept|deny|invite <Spieler>|leave|disband|kick <Spieler>|list]"
+
+# --- Freunde-Chat ----------------------------------------------------------
+friend-request-sent: "{prefix}&7Freundschaftsanfrage an &f{target} &7gesendet."
+friend-request-received: "{prefix}&f{sender} &7moechte dich als Freund. &8» &a&l[Annehmen]"
+friend-request-disabled: "{prefix}&c{target} hat Anfragen deaktiviert."
+friend-request-none: "{prefix}&cKeine offene Anfrage von diesem Spieler."
+friend-request-denied: "{prefix}&7Anfrage abgelehnt."
+friend-request-self: "{prefix}&cDich selbst geht nicht."
+friend-already: "{prefix}&7Ihr seid bereits Freunde."
+friend-added: "{prefix}&aDu bist jetzt mit &f{name} &abefreundet."
+friend-removed: "{prefix}&7{name} &7wurde aus deiner Freundesliste entfernt."
+friend-not-found: "{prefix}&cSpieler &f{name} &cnicht gefunden."
+friend-list-header: "{prefix}&7Freunde &8(&f{count}&8)&7:"
+friend-list-entry: "&8• &f{name} &8— {status}"
+friend-list-empty: "{prefix}&7Du hast noch keine Freunde."
+friend-usage: "{prefix}&7/friend [add <Spieler>|accept <Spieler>|deny <Spieler>|remove <Spieler>|list]"
+
+# --- Allgemein -------------------------------------------------------------
+players-only: "{prefix}&cNur fuer Spieler."
+player-not-found: "{prefix}&cSpieler nicht gefunden."

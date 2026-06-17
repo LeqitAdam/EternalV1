@@ -14,18 +14,17 @@
     <artifactId>eternal-bungee</artifactId>
     <packaging>jar</packaging>
 
+    <!--
+      Plain code library: the BungeeCord side of Eternal. No descriptor / no
+      resources of its own — bundled into the single deployable jar
+      (eternal-plugin) alongside the Spigot library. SQLite is kept (not
+      excluded) because the unified jar ships it for the Spigot backend; the
+      proxy simply never loads it when running on MySQL.
+    -->
     <dependencies>
         <dependency>
             <groupId>de.eternal</groupId>
             <artifactId>eternal-core</artifactId>
-            <exclusions>
-                <!-- Bungee laeuft ausnahmslos im Netzwerk gegen MySQL — den
-                     12 MB grossen SQLite-Treiber sparen wir uns hier. -->
-                <exclusion>
-                    <groupId>org.xerial</groupId>
-                    <artifactId>sqlite-jdbc</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>net.md-5</groupId>
@@ -36,53 +35,4 @@
             <artifactId>annotations</artifactId>
         </dependency>
     </dependencies>
-
-    <build>
-        <finalName>EternalBungee-${project.version}</finalName>
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
-            </resource>
-        </resources>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals><goal>shade</goal></goals>
-                        <configuration>
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <relocations>
-                                <relocation>
-                                    <pattern>com.zaxxer.hikari</pattern>
-                                    <shadedPattern>de.eternal.libs.hikari</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.sqlite</pattern>
-                                    <shadedPattern>de.eternal.libs.sqlite</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>com.mysql</pattern>
-                                    <shadedPattern>de.eternal.libs.mysql</shadedPattern>
-                                </relocation>
-                            </relocations>
-                            <filters>
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 </project>

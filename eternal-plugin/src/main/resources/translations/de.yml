@@ -16,7 +16,6 @@ no-permission: "{prefix}&cDu hast dafuer keine Rechte."
 player-only: "{prefix}&cNur Spieler koennen das ausfuehren."
 unknown-player: "{prefix}&cSpieler &e{name} &cwurde nie auf diesem Server gesehen."
 unknown-action: "{prefix}&cUnbekannte Aktion: &f{action}"
-consent-use-gui: "{prefix}&7Bitte nutze die Datenschutz-&fGUI&7, die beim Join automatisch geoeffnet wird."
 unknown-reason: "{prefix}&cUnbekannter Grund: &f{id}"
 console-name: "Konsole"
 none: "-"
@@ -29,7 +28,76 @@ usage-unmute: "{prefix}&7Nutzung: &f/unmute <Spieler> [Grund]"
 usage-report: "{prefix}&7Nutzung: &f/report <Spieler> [Grund-Nr] [Kommentar]"
 usage-lookup: "{prefix}&7Nutzung: &f/lookup <Spieler>"
 usage-history: "{prefix}&7Nutzung: &f/history <Spieler>"
-usage-eternal: "{prefix}&7Nutzung: &f/eternal <reload|link <code>>"
+usage-eternal: "{prefix}&7Nutzung: &f/eternal <reload|link <code>|accept|decline>"
+
+# --- Datenschutz-Zustimmung (GDPR) --------------------------------------
+# Wird beim ersten Join angezeigt. Bewusst lang & lesbar — der Spieler
+# muss vor der Akzeptanz wissen WAS gespeichert wird. Die Akzeptieren/
+# Ablehnen-Buttons baut der Connection-Listener als clickable
+# Komponenten zusätzlich darunter.
+consent-prompt: |-
+  &8&m─────────────────────────────────────
+  &dDatenschutz &8» &fEinmalige Zustimmung erforderlich
+  &7
+  &7Hallo &e{player}&7, willkommen auf dem Server!
+  &7Damit du spielen kannst, müssen wir folgende Daten verarbeiten:
+  &8 • &fSpielername + UUID  &8(für Strafen/Reports)
+  &8 • &fIP-Adresse          &8(für Multi-Account-Erkennung)
+  &8 • &fSpielzeit-Logs      &8(Login/Logout pro Sitzung)
+  &8 • &fChat-/Hit-/Replay-Aufzeichnungen bei Reports
+  &7
+  &7Die volle Datenschutzerklaerung findest du im Web unter:
+  &b  https://eternal.example/datenschutz
+  &7
+  &7Klicke unten zum Akzeptieren oder Ablehnen.
+  &7Bei Ablehnung wirst du gekickt &8(und alle bereits gespeicherten
+  &7Daten werden geloescht, inkl. deines CloudNet-Eintrags).
+  &8&m─────────────────────────────────────
+consent-accepted: "{prefix}&aDanke! Du kannst jetzt loslegen."
+consent-not-pending: "{prefix}&7Du hast bereits zugestimmt — nichts zu tun."
+consent-blocked-command: "{prefix}&cBitte zuerst die Datenschutz-GUI bestaetigen."
+# Proxy-Hinweis (BungeeCord): /eternal accept|decline gibt es nicht mehr — die
+# Zustimmung laeuft ueber die GUI auf dem Backend-Server.
+consent-use-gui: "{prefix}&7Bitte nutze die Datenschutz-&fGUI&7, die beim Join automatisch geoeffnet wird."
+
+# --- Consent-GUI ---
+# Wird beim ersten Join geoeffnet. Ein Klick auf Akzeptieren/Ablehnen
+# entscheidet — Schliessen ohne Auswahl reopened die GUI sofort.
+consent-gui-title: "&dDatenschutz &8» &fZustimmung"
+consent-gui-accept-name: "&a&lAkzeptieren"
+consent-gui-accept-lore: |-
+  &7Du erlaubst uns, deine
+  &7Daten gemaess der Erklaerung
+  &7zu speichern.
+  &7
+  &eKlick zum Bestaetigen.
+consent-gui-decline-name: "&c&lAblehnen"
+consent-gui-decline-lore: |-
+  &7Du wirst gekickt und alle
+  &7bereits gespeicherten Daten
+  &7werden geloescht (inkl. CloudNet).
+  &7
+  &eKlick zum Ablehnen.
+consent-gui-info-name: "&fHallo &e{player}&8, &fwillkommen!"
+consent-gui-info-lore: |-
+  &7Wir verarbeiten:
+  &8 • &fName + UUID  &8(Strafen/Reports)
+  &8 • &fIP-Adresse   &8(Multi-Account-Schutz)
+  &8 • &fSpielzeit    &8(Sessions)
+  &8 • &fChat-/Hit-/Replay-Daten bei Reports
+  &7
+  &7Volle Erklaerung:
+  &b https://eternal.example/datenschutz
+consent-declined-kick: |-
+  &dEternal &8»
+
+  &7Du hast die Datenschutzbestimmungen &cabgelehnt&7.
+
+  &7Wir haben &calle Daten geloescht&7, die wir bereits ueber dich gespeichert
+  &7hatten (Profil, Login-Logs, CloudNet-Eintrag).
+
+  &7Falls du es dir doch anders ueberlegst, kannst du erneut joinen
+  &7und beim naechsten Mal akzeptieren.
 link-success: "{prefix}&aAccount mit dem Dashboard verknuepft."
 link-failed: "{prefix}&cCode unbekannt oder abgelaufen."
 link-api-disabled: "{prefix}&cDie REST-API ist nicht konfiguriert. Setze api.enabled=true in der config.yml."

@@ -1,0 +1,5 @@
+name: EternalParty
+version: ${project.version}
+main: de.eternal.party.bungee.EternalPartyBungee
+author: Eternal
+description: Eternal Party + Friends (BungeeCord cross-server notifier)

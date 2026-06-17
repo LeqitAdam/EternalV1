@@ -1,0 +1,19 @@
+name: EternalAutonicker
+version: ${project.version}
+main: de.eternal.autonicker.EternalAutonicker
+api-version: '1.19'
+author: Eternal
+description: Eternal Autonicker — random name/skin/rank disguise.
+softdepend: [ProtocolLib]
+
+commands:
+  autonick:
+    description: Schaltet den Autonicker an/aus.
+    usage: /autonick [on|off]
+    aliases: [nick]
+    permission: eternal.autonick.use
+
+permissions:
+  eternal.autonick.use:
+    description: Darf den Autonicker nutzen.
+    default: true

@@ -1,0 +1,18 @@
+# Eternal Autonicker — deutsche Texte. Alle Strings frei anpassbar.
+prefix: "&8[&5Nick&8] &7"
+
+item-nametag-name: "&5Autonicker &8» &7Rechtsklick"
+item-nametag-lore: |-
+  &7Schalte deinen Nick an oder aus.
+  &7Zustand&8: {state}
+
+state-on: "&aAN"
+state-off: "&cAUS"
+
+nick-enabled: "{prefix}&aDu bist jetzt &f{name} &a(Rang&8: &f{rank}&a)."
+nick-enabled-name-only: "{prefix}&aDu heisst jetzt &f{name}&a."
+nick-disabled: "{prefix}&7Dein Nick wurde entfernt — du bist wieder &f{name}&7."
+nick-no-cloudnet: "{prefix}&7Kein CloudNet — nur Name + Skin geaendert, kein Rang."
+nick-failed: "{prefix}&cNicken fehlgeschlagen. Versuche es erneut."
+nick-disabled-feature: "{prefix}&cDer Autonicker ist deaktiviert."
+players-only: "{prefix}&cNur fuer Spieler."

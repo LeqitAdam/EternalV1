@@ -17,8 +17,11 @@
         <module>eternal-core</module>
         <module>eternal-spigot</module>
         <module>eternal-bungee</module>
+        <module>eternal-plugin</module>
         <module>eternal-api</module>
         <module>eternal-replay</module>
+        <module>eternal-party</module>
+        <module>eternal-autonicker</module>
     </modules>
 
     <properties>
