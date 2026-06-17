@@ -101,3 +101,14 @@ cloudnet:
       tier: 0
       permissions:
         - eternal.report
+
+# Basesystem (Teleport, Gamemode, Fly, Homes/Warps/Spawn, /sign, ...).
+base:
+  # Maximale Anzahl Homes pro Spieler (eternal.base.home.unlimited umgeht das).
+  max-homes: 3
+  # Gueltigkeit einer /tpa-Anfrage in Sekunden.
+  tpa-expiry-seconds: 60
+  # /back merkt sich auch die Todesposition.
+  back-on-death: true
+  # Default-Home-Name, wenn /sethome ohne Namen genutzt wird.
+  default-home-name: home

@@ -2,8 +2,10 @@ package de.eternal.core.storage.sql;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import de.eternal.core.base.BaseStorage;
 import de.eternal.core.config.DatabaseConfig;
 import de.eternal.core.model.Friend;
+import de.eternal.core.model.Loc;
 import de.eternal.core.model.FriendRequest;
 import de.eternal.core.model.NickSession;
 import de.eternal.core.model.Party;
@@ -48,7 +50,7 @@ import java.util.UUID;
  * Single SQL backend that handles both SQLite and MySQL via dialect switches.
  * Schema is identical except for AUTOINCREMENT vs AUTO_INCREMENT.
  */
-public final class SqlStorage implements EternalStorage, PermissionStorage, SocialStorage {
+public final class SqlStorage implements EternalStorage, PermissionStorage, SocialStorage, BaseStorage {
 
     private final DatabaseConfig config;
     private HikariDataSource dataSource;
@@ -254,6 +256,7 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             createCloudGroupsTable(c);
             migrateAddProfileGroups(c);
             createSocialTables(c);
+            createBaseTables(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -2126,11 +2129,12 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                 "eternal_user_permissions",
                 "eternal_party_members",
                 "eternal_player_prefs",
-                "eternal_nick_sessions"
+                "eternal_nick_sessions",
+                "eternal_base_homes"
         };
         String[] uuidColumns = {
                 "uuid", "user_uuid", "uuid", "uuid", "user_uuid",
-                "uuid", "uuid", "uuid"
+                "uuid", "uuid", "uuid", "owner_uuid"
         };
         try (Connection c = conn()) {
             for (int i = 0; i < tables.length; i++) {
@@ -2932,6 +2936,279 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                 skinValue,
                 skinSig,
                 Instant.ofEpochMilli(rs.getLong("started_at"))
+        );
+    }
+
+    /* ====================================================================
+     * BaseStorage — base-system homes / warps / spawn. Scoped by server so a
+     * shared network DB keeps each backend separate. Same conventions as
+     * above (dialect-aware DDL + upserts). Coords stored as DOUBLE.
+     * ==================================================================== */
+
+    private void createBaseTables(@NotNull Connection c) throws SQLException {
+        String idStr = isSqlite() ? "TEXT" : "VARCHAR(36)";
+        String shortStr = isSqlite() ? "TEXT" : "VARCHAR(64)";
+        try (Statement st = c.createStatement()) {
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_base_homes (
+                      owner_uuid %1$s NOT NULL,
+                      server %2$s NOT NULL,
+                      name %2$s NOT NULL,
+                      world %2$s NOT NULL,
+                      x DOUBLE NOT NULL,
+                      y DOUBLE NOT NULL,
+                      z DOUBLE NOT NULL,
+                      yaw DOUBLE NOT NULL,
+                      pitch DOUBLE NOT NULL,
+                      created_at BIGINT NOT NULL,
+                      PRIMARY KEY (owner_uuid, server, name)
+                    )""").formatted(idStr, shortStr));
+            st.execute("CREATE INDEX IF NOT EXISTS idx_base_homes_owner ON eternal_base_homes(owner_uuid, server)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_base_warps (
+                      server %1$s NOT NULL,
+                      name %1$s NOT NULL,
+                      world %1$s NOT NULL,
+                      x DOUBLE NOT NULL,
+                      y DOUBLE NOT NULL,
+                      z DOUBLE NOT NULL,
+                      yaw DOUBLE NOT NULL,
+                      pitch DOUBLE NOT NULL,
+                      created_at BIGINT NOT NULL,
+                      PRIMARY KEY (server, name)
+                    )""").formatted(shortStr));
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_base_spawn (
+                      server %1$s PRIMARY KEY NOT NULL,
+                      world %1$s NOT NULL,
+                      x DOUBLE NOT NULL,
+                      y DOUBLE NOT NULL,
+                      z DOUBLE NOT NULL,
+                      yaw DOUBLE NOT NULL,
+                      pitch DOUBLE NOT NULL
+                    )""").formatted(shortStr));
+        }
+    }
+
+    @Override
+    public void setHome(@NotNull UUID owner, @NotNull String server, @NotNull String name, @NotNull Loc loc) {
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_base_homes (owner_uuid, server, name, world, x, y, z, yaw, pitch, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(owner_uuid, server, name) DO UPDATE SET
+                  world=excluded.world, x=excluded.x, y=excluded.y, z=excluded.z,
+                  yaw=excluded.yaw, pitch=excluded.pitch
+                """ : """
+                INSERT INTO eternal_base_homes (owner_uuid, server, name, world, x, y, z, yaw, pitch, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  world=VALUES(world), x=VALUES(x), y=VALUES(y), z=VALUES(z),
+                  yaw=VALUES(yaw), pitch=VALUES(pitch)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, owner.toString());
+            ps.setString(2, server);
+            ps.setString(3, name);
+            bindLoc(ps, 4, loc);
+            ps.setLong(10, System.currentTimeMillis());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("setHome failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Loc> getHome(@NotNull UUID owner, @NotNull String server, @NotNull String name) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT world, x, y, z, yaw, pitch FROM eternal_base_homes "
+                             + "WHERE owner_uuid = ? AND server = ? AND LOWER(name) = LOWER(?)")) {
+            ps.setString(1, owner.toString());
+            ps.setString(2, server);
+            ps.setString(3, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readLoc(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("getHome failed", ex);
+        }
+    }
+
+    @Override
+    public boolean deleteHome(@NotNull UUID owner, @NotNull String server, @NotNull String name) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM eternal_base_homes WHERE owner_uuid = ? AND server = ? AND LOWER(name) = LOWER(?)")) {
+            ps.setString(1, owner.toString());
+            ps.setString(2, server);
+            ps.setString(3, name);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("deleteHome failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<String> listHomes(@NotNull UUID owner, @NotNull String server) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT name FROM eternal_base_homes WHERE owner_uuid = ? AND server = ? ORDER BY name ASC")) {
+            ps.setString(1, owner.toString());
+            ps.setString(2, server);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<String> out = new ArrayList<>();
+                while (rs.next()) out.add(rs.getString("name"));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("listHomes failed", ex);
+        }
+    }
+
+    @Override
+    public int homeCount(@NotNull UUID owner, @NotNull String server) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT COUNT(*) FROM eternal_base_homes WHERE owner_uuid = ? AND server = ?")) {
+            ps.setString(1, owner.toString());
+            ps.setString(2, server);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("homeCount failed", ex);
+        }
+    }
+
+    @Override
+    public void setWarp(@NotNull String server, @NotNull String name, @NotNull Loc loc) {
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_base_warps (server, name, world, x, y, z, yaw, pitch, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(server, name) DO UPDATE SET
+                  world=excluded.world, x=excluded.x, y=excluded.y, z=excluded.z,
+                  yaw=excluded.yaw, pitch=excluded.pitch
+                """ : """
+                INSERT INTO eternal_base_warps (server, name, world, x, y, z, yaw, pitch, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  world=VALUES(world), x=VALUES(x), y=VALUES(y), z=VALUES(z),
+                  yaw=VALUES(yaw), pitch=VALUES(pitch)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, server);
+            ps.setString(2, name);
+            bindLoc(ps, 3, loc);
+            ps.setLong(9, System.currentTimeMillis());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("setWarp failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Loc> getWarp(@NotNull String server, @NotNull String name) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT world, x, y, z, yaw, pitch FROM eternal_base_warps "
+                             + "WHERE server = ? AND LOWER(name) = LOWER(?)")) {
+            ps.setString(1, server);
+            ps.setString(2, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readLoc(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("getWarp failed", ex);
+        }
+    }
+
+    @Override
+    public boolean deleteWarp(@NotNull String server, @NotNull String name) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM eternal_base_warps WHERE server = ? AND LOWER(name) = LOWER(?)")) {
+            ps.setString(1, server);
+            ps.setString(2, name);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("deleteWarp failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<String> listWarps(@NotNull String server) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT name FROM eternal_base_warps WHERE server = ? ORDER BY name ASC")) {
+            ps.setString(1, server);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<String> out = new ArrayList<>();
+                while (rs.next()) out.add(rs.getString("name"));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("listWarps failed", ex);
+        }
+    }
+
+    @Override
+    public void setSpawn(@NotNull String server, @NotNull Loc loc) {
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_base_spawn (server, world, x, y, z, yaw, pitch)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(server) DO UPDATE SET
+                  world=excluded.world, x=excluded.x, y=excluded.y, z=excluded.z,
+                  yaw=excluded.yaw, pitch=excluded.pitch
+                """ : """
+                INSERT INTO eternal_base_spawn (server, world, x, y, z, yaw, pitch)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  world=VALUES(world), x=VALUES(x), y=VALUES(y), z=VALUES(z),
+                  yaw=VALUES(yaw), pitch=VALUES(pitch)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, server);
+            bindLoc(ps, 2, loc);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("setSpawn failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Loc> getSpawn(@NotNull String server) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT world, x, y, z, yaw, pitch FROM eternal_base_spawn WHERE server = ?")) {
+            ps.setString(1, server);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readLoc(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("getSpawn failed", ex);
+        }
+    }
+
+    /** Binds world,x,y,z,yaw,pitch starting at {@code i} (6 params). */
+    private static void bindLoc(@NotNull PreparedStatement ps, int i, @NotNull Loc loc) throws SQLException {
+        ps.setString(i, loc.world());
+        ps.setDouble(i + 1, loc.x());
+        ps.setDouble(i + 2, loc.y());
+        ps.setDouble(i + 3, loc.z());
+        ps.setDouble(i + 4, loc.yaw());
+        ps.setDouble(i + 5, loc.pitch());
+    }
+
+    private static Loc readLoc(@NotNull ResultSet rs) throws SQLException {
+        return new Loc(
+                rs.getString("world"),
+                rs.getDouble("x"),
+                rs.getDouble("y"),
+                rs.getDouble("z"),
+                (float) rs.getDouble("yaw"),
+                (float) rs.getDouble("pitch")
         );
     }
 }
