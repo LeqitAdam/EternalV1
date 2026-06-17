@@ -61,11 +61,7 @@ commands:
   tpaccept:  { description: Anfrage annehmen., usage: /tpaccept, aliases: [tpyes], permission: eternal.base.tpa }
   tpdeny:    { description: Anfrage ablehnen., usage: /tpdeny, aliases: [tpno], permission: eternal.base.tpa }
   back:      { description: Zurueck zur letzten Position., usage: /back, permission: eternal.base.back }
-  gamemode:  { description: Spielmodus., usage: /gamemode <0-3>, aliases: [gm], permission: eternal.base.gamemode }
-  gmc:       { description: Kreativ., usage: /gmc [Spieler], permission: eternal.base.gamemode }
-  gms:       { description: Ueberleben., usage: /gms [Spieler], permission: eternal.base.gamemode }
-  gma:       { description: Abenteuer., usage: /gma [Spieler], permission: eternal.base.gamemode }
-  gmsp:      { description: Zuschauer., usage: /gmsp [Spieler], permission: eternal.base.gamemode }
+  gamemode:  { description: Spielmodus setzen., usage: /gm <0-3> [Spieler], aliases: [gm], permission: eternal.base.gamemode }
   fly:       { description: Flugmodus., usage: /fly [Spieler], permission: eternal.base.fly }
   speed:     { description: Tempo., usage: /speed <walk|fly> <0-10> [Spieler], permission: eternal.base.speed }
   god:       { description: Unverwundbarkeit., usage: /god [Spieler], permission: eternal.base.god }

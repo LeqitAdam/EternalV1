@@ -303,7 +303,7 @@ public final class EternalSpigot extends JavaPlugin {
     private void registerBaseCommands() {
         bindBase(new de.eternal.spigot.command.TeleportCommand(this), "tp", "tphere", "tppos", "top");
         bindBase(new de.eternal.spigot.command.TpaCommand(this), "tpa", "tpahere", "tpaccept", "tpdeny");
-        bindBase(new de.eternal.spigot.command.GamemodeCommand(this), "gamemode", "gmc", "gms", "gma", "gmsp");
+        bindBase(new de.eternal.spigot.command.GamemodeCommand(this), "gamemode");
         bindBase(new de.eternal.spigot.command.FlyCommand(this), "fly");
         bindBase(new de.eternal.spigot.command.SpeedCommand(this), "speed");
         bindBase(new de.eternal.spigot.command.StateCommand(this), "god", "heal", "feed");

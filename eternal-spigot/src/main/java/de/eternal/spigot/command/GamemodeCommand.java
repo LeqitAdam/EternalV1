@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** /gamemode + shortcuts /gmc /gms /gma /gmsp. */
+/** /gamemode (alias /gm) — used as {@code /gm <0-3> [Spieler]}, e.g. /gm 1 Notch. */
 public final class GamemodeCommand implements CommandExecutor, TabCompleter {
 
     private final EternalSpigot plugin;
@@ -26,43 +26,28 @@ public final class GamemodeCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
                              @NotNull String label, @NotNull String[] args) {
-        GameMode mode;
-        String playerArg;
-        switch (command.getName().toLowerCase(Locale.ROOT)) {
-            case "gmc" -> { mode = GameMode.CREATIVE; playerArg = arg(args, 0); }
-            case "gms" -> { mode = GameMode.SURVIVAL; playerArg = arg(args, 0); }
-            case "gma" -> { mode = GameMode.ADVENTURE; playerArg = arg(args, 0); }
-            case "gmsp" -> { mode = GameMode.SPECTATOR; playerArg = arg(args, 0); }
-            default -> {
-                if (args.length < 1) {
-                    plugin.messages().send(sender, "usage", "usage", "/gamemode <0-3> [player]");
-                    return true;
-                }
-                GameMode parsed = parse(args[0]);
-                if (parsed == null) {
-                    plugin.messages().send(sender, "gamemode-invalid");
-                    return true;
-                }
-                mode = parsed;
-                playerArg = arg(args, 1);
-            }
+        if (args.length < 1) {
+            plugin.messages().send(sender, "usage", "usage", "/gm <0-3> [Spieler]");
+            return true;
         }
-        apply(sender, mode, playerArg);
-        return true;
-    }
+        GameMode mode = parse(args[0]);
+        if (mode == null) {
+            plugin.messages().send(sender, "gamemode-invalid");
+            return true;
+        }
+        String playerArg = args.length > 1 ? args[1] : null;
 
-    private void apply(CommandSender sender, GameMode mode, @Nullable String playerArg) {
         Player target;
         if (playerArg != null) {
             if (!Cmd.has(sender, "eternal.base.gamemode.others")) {
                 plugin.messages().send(sender, "no-permission");
-                return;
+                return true;
             }
             target = Cmd.online(plugin, sender, playerArg);
-            if (target == null) return;
+            if (target == null) return true;
         } else {
             target = Cmd.player(plugin, sender);
-            if (target == null) return;
+            if (target == null) return true;
         }
         target.setGameMode(mode);
         String pretty = mode.name().toLowerCase(Locale.ROOT);
@@ -72,10 +57,7 @@ public final class GamemodeCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "gamemode-other", "player", target.getName(), "mode", pretty);
             plugin.messages().send(target, "gamemode-self", "mode", pretty);
         }
-    }
-
-    private static @Nullable String arg(String[] args, int i) {
-        return args.length > i ? args[i] : null;
+        return true;
     }
 
     private static @Nullable GameMode parse(String s) {
@@ -91,13 +73,11 @@ public final class GamemodeCommand implements CommandExecutor, TabCompleter {
     @Override
     public @Nullable List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command,
                                                 @NotNull String alias, @NotNull String[] args) {
-        boolean isGamemode = command.getName().equalsIgnoreCase("gamemode");
-        if (isGamemode && args.length == 1) {
-            return new ArrayList<>(List.of("survival", "creative", "adventure", "spectator"));
+        if (args.length == 1) {
+            return new ArrayList<>(List.of("0", "1", "2", "3"));
         }
-        int playerIdx = isGamemode ? 2 : 1;
-        if (args.length == playerIdx) {
-            String pre = args[args.length - 1].toLowerCase(Locale.ROOT);
+        if (args.length == 2) {
+            String pre = args[1].toLowerCase(Locale.ROOT);
             List<String> out = new ArrayList<>();
             for (Player pl : plugin.getServer().getOnlinePlayers()) {
                 if (pl.getName().toLowerCase(Locale.ROOT).startsWith(pre)) out.add(pl.getName());
