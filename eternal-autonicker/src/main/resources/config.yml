@@ -1,0 +1,48 @@
+# Eternal Autonicker — Spigot Konfiguration
+#
+# database MUSS auf dieselbe DB wie das Haupt-Eternal-Plugin zeigen (die
+# Nick-Sessions werden dort gespeichert, damit ein Crash/Neustart die echten
+# Namen + Raenge wiederherstellen kann).
+
+language: de
+server-name: lobby
+
+database:
+  type: sqlite
+  file: eternal.db
+
+  host: 127.0.0.1
+  port: 3306
+  database: eternal
+  username: eternal
+  password: ""
+  pool-size: 10
+
+autonicker:
+  enabled: true
+
+  # Hotbar-Slot (1-9) fuer das Namensschild. 5 = Mitte.
+  nametag-slot: 5
+  give-tag-on-join: true
+  lock-tag-slot: true
+
+  # Zufaelligen Rang vergeben (nur mit CloudNet moeglich).
+  randomize-rank: true
+  # Ohne CloudNet: Rang/DisplayName verstecken und Default nutzen.
+  hide-rank-without-cloudnet: true
+  # Default-DisplayName waehrend des Nicks ({name} = der zufaellige Name).
+  # YouTube-/Team-Raenge werden NIE vergeben (siehe protected-groups).
+  default-display: "&7{name}"
+  # An den zufaelligen Namen 1-3 Ziffern anhaengen (gegen Namens-Kollisionen).
+  append-random-digits: true
+
+  # Pool zufaelliger Namen.
+  name-pool: [Notch, Steve, Alex, Herobrine, Creeper, Enderman, Phantom, Wither, Blaze, Strider, Piglin, Slime]
+  # Pool an Spielernamen, deren Skin kopiert wird.
+  skin-pool: [Notch, jeb_, Dinnerbone, Grumm, Steve, Alex]
+
+  # CloudNet-Raenge, aus denen der Zufallsrang gewaehlt wird. Leer lassen =
+  # "alle CloudNet-Gruppen ausser protected-groups".
+  nickable-groups: [player, premium]
+  # Diese Raenge werden NIE als Nick-Rang vergeben (Team/YouTube schuetzen).
+  protected-groups: [owner, admin, sradmin, srmod, mod, moderator, supporter, builder, developer, dev, team, staff, youtuber, youtube, yt]

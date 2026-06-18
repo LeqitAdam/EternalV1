@@ -1,0 +1,39 @@
+# Eternal Party — Spigot Konfiguration
+#
+# WICHTIG: database MUSS auf dieselbe Datenbank zeigen wie das Haupt-Eternal-
+# Plugin (und das Bungee-Pendant), damit Freundes-/Party-Daten netzwerkweit
+# geteilt werden. Im Netzwerkbetrieb IMMER MySQL verwenden — SQLite ist nur
+# fuer Einzelserver gedacht.
+
+language: de
+server-name: lobby
+
+database:
+  type: sqlite       # SQLITE (lokal) oder MYSQL (Netzwerk)
+  file: eternal.db   # bei SQLite: identische Datei wie das Haupt-Plugin
+
+  host: 127.0.0.1
+  port: 3306
+  database: eternal
+  username: eternal
+  password: ""
+  pool-size: 10
+
+party:
+  enabled: true
+
+  # Hotbar-Slot (1-9) fuer den Party-Kopf. 9 = ganz rechts.
+  head-slot: 9
+  # Kopf beim Join automatisch ins Inventar geben.
+  give-head-on-join: true
+  # Verhindert, dass der Spieler den Kopf wegwirft / verschiebt.
+  lock-head-slot: true
+
+  # Maximale Spielerzahl einer Party (inkl. Leader).
+  max-members: 8
+  # Wie lange (Sekunden) eine Einladung gueltig bleibt.
+  invite-expiry-seconds: 120
+
+  # Default-Einstellungen fuer neue Spieler (ueber das Menue aenderbar).
+  default-allow-friend-requests: true
+  default-allow-party-invites: true

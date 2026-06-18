@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>de.eternal</groupId>
+        <artifactId>eternal-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>eternal-plugin</artifactId>
+    <packaging>jar</packaging>
+
+    <name>Eternal Plugin</name>
+    <description>The single deployable Eternal jar. Ships BOTH plugin.yml (Spigot main
+                 de.eternal.spigot.EternalSpigot) and bungee.yml (Bungee main
+                 de.eternal.bungee.EternalBungee); each platform loads only its own entry
+                 point, so the unused base class is never resolved. eternal-spigot and
+                 eternal-bungee are plain code libraries shaded in here.</description>
+
+    <!--
+      No source of its own — this module only assembles eternal-core + the two
+      platform code libraries into one fat jar and carries the unified resources
+      (one config.yml/reasons.yml/translations + both descriptors).
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>de.eternal</groupId>
+            <artifactId>eternal-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>de.eternal</groupId>
+            <artifactId>eternal-spigot</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>de.eternal</groupId>
+            <artifactId>eternal-bungee</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>Eternal-${project.version}</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <minimizeJar>false</minimizeJar>
+                            <relocations>
+                                <relocation>
+                                    <pattern>com.zaxxer.hikari</pattern>
+                                    <shadedPattern>de.eternal.libs.hikari</shadedPattern>
+                                </relocation>
+                                <!--
+                                  org.sqlite is intentionally NOT relocated: its
+                                  native lib calls back into org.sqlite.core.NativeDB
+                                  by hardcoded classname (JNI), which breaks if
+                                  renamed. The Spigot backend uses it; the Bungee
+                                  proxy simply never touches it (MySQL on the network).
+                                -->
+                                <relocation>
+                                    <pattern>com.mysql</pattern>
+                                    <shadedPattern>de.eternal.libs.mysql</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

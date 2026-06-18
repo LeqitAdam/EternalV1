@@ -1,0 +1,18 @@
+# Eternal Autonicker — English text. All strings freely editable.
+prefix: "&8[&5Nick&8] &7"
+
+item-nametag-name: "&5Autonicker &8» &7Right-click"
+item-nametag-lore: |-
+  &7Toggle your disguise on or off.
+  &7State&8: {state}
+
+state-on: "&aON"
+state-off: "&cOFF"
+
+nick-enabled: "{prefix}&aYou are now &f{name} &a(rank&8: &f{rank}&a)."
+nick-enabled-name-only: "{prefix}&aYour name is now &f{name}&a."
+nick-disabled: "{prefix}&7Disguise removed — you are &f{name} &7again."
+nick-no-cloudnet: "{prefix}&7No CloudNet — changed name + skin only, no rank."
+nick-failed: "{prefix}&cNicking failed. Please try again."
+nick-disabled-feature: "{prefix}&cThe autonicker is disabled."
+players-only: "{prefix}&cPlayers only."

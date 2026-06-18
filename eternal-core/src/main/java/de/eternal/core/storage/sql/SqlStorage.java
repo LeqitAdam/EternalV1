@@ -3,7 +3,14 @@ package de.eternal.core.storage.sql;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import de.eternal.core.config.DatabaseConfig;
+import de.eternal.core.model.Friend;
+import de.eternal.core.model.FriendRequest;
+import de.eternal.core.model.NickSession;
+import de.eternal.core.model.Party;
+import de.eternal.core.model.PartyInvite;
+import de.eternal.core.model.PartyMember;
 import de.eternal.core.model.PermissionGrant;
+import de.eternal.core.model.PlayerPrefs;
 import de.eternal.core.model.PlayerProfile;
 import de.eternal.core.model.PunishmentEntry;
 import de.eternal.core.model.PunishmentType;
@@ -17,6 +24,7 @@ import de.eternal.core.model.Session;
 import de.eternal.core.model.StaffStat;
 import de.eternal.core.model.UnbanAppeal;
 import de.eternal.core.permission.PermissionStorage;
+import de.eternal.core.social.SocialStorage;
 import de.eternal.core.storage.EternalStorage;
 import de.eternal.core.storage.StorageException;
 import org.jetbrains.annotations.NotNull;
@@ -40,7 +48,7 @@ import java.util.UUID;
  * Single SQL backend that handles both SQLite and MySQL via dialect switches.
  * Schema is identical except for AUTOINCREMENT vs AUTO_INCREMENT.
  */
-public final class SqlStorage implements EternalStorage, PermissionStorage {
+public final class SqlStorage implements EternalStorage, PermissionStorage, SocialStorage {
 
     private final DatabaseConfig config;
     private HikariDataSource dataSource;
@@ -245,6 +253,7 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
             createConsentTable(c);
             createCloudGroupsTable(c);
             migrateAddProfileGroups(c);
+            createSocialTables(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -2114,10 +2123,14 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
                 "eternal_sessions",
                 "eternal_login_sessions",
                 "eternal_consent",
-                "eternal_user_permissions"
+                "eternal_user_permissions",
+                "eternal_party_members",
+                "eternal_player_prefs",
+                "eternal_nick_sessions"
         };
         String[] uuidColumns = {
-                "uuid", "user_uuid", "uuid", "uuid", "user_uuid"
+                "uuid", "user_uuid", "uuid", "uuid", "user_uuid",
+                "uuid", "uuid", "uuid"
         };
         try (Connection c = conn()) {
             for (int i = 0; i < tables.length; i++) {
@@ -2139,9 +2152,786 @@ public final class SqlStorage implements EternalStorage, PermissionStorage {
             } catch (SQLException ex) {
                 System.err.println("[Eternal-purge] eternal_link_codes: " + ex.getMessage());
             }
+            // Social tables with a two-sided UUID relationship — friendships,
+            // friend requests, party invites and led parties are personal
+            // data on BOTH ends, so purge any row mentioning the player.
+            String[][] twoSided = {
+                    {"eternal_friendships", "uuid_a", "uuid_b"},
+                    {"eternal_friend_requests", "from_uuid", "to_uuid"},
+                    {"eternal_party_invites", "from_uuid", "to_uuid"},
+                    {"eternal_parties", "leader_uuid", "leader_uuid"}
+            };
+            for (String[] tc : twoSided) {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "DELETE FROM " + tc[0] + " WHERE " + tc[1] + " = ? OR " + tc[2] + " = ?")) {
+                    ps.setString(1, uuidStr);
+                    ps.setString(2, uuidStr);
+                    total += ps.executeUpdate();
+                } catch (SQLException ex) {
+                    System.err.println("[Eternal-purge] " + tc[0] + ": " + ex.getMessage());
+                }
+            }
         } catch (SQLException ex) {
             throw new StorageException("purgePersonalData failed", ex);
         }
         return total;
+    }
+
+    /* ====================================================================
+     * SocialStorage — friends, friend requests, parties, party invites,
+     * per-player prefs and nick sessions. Same conventions as everything
+     * above: eternal_ prefix, UUID VARCHAR(36), millis BIGINT, INT booleans,
+     * VARCHAR enum status, dialect-aware upserts, no FK constraints.
+     * ==================================================================== */
+
+    private void createSocialTables(@NotNull Connection c) throws SQLException {
+        String pk = pk();
+        String s = textType();
+        String t = longTextType();
+        try (Statement st = c.createStatement()) {
+            // Friendships — one row per pair, canonically ordered (uuid_a is
+            // the lexicographically smaller UUID string). Unique index powers
+            // the upsert conflict target AND enforces "one friendship row".
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_friendships (
+                      id %1$s,
+                      uuid_a %2$s NOT NULL,
+                      name_a %2$s NOT NULL,
+                      uuid_b %2$s NOT NULL,
+                      name_b %2$s NOT NULL,
+                      created_at BIGINT NOT NULL
+                    )""").formatted(pk, s));
+            st.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_friendships_pair ON eternal_friendships(uuid_a, uuid_b)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_friendships_b ON eternal_friendships(uuid_b)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_friend_requests (
+                      id %1$s,
+                      from_uuid %2$s NOT NULL,
+                      from_name %2$s NOT NULL,
+                      to_uuid %2$s NOT NULL,
+                      to_name %2$s NOT NULL,
+                      status %2$s NOT NULL,
+                      created_at BIGINT NOT NULL,
+                      responded_at BIGINT
+                    )""").formatted(pk, s));
+            st.execute("CREATE INDEX IF NOT EXISTS idx_friend_req_to ON eternal_friend_requests(to_uuid, status)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_friend_req_from ON eternal_friend_requests(from_uuid, status)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_parties (
+                      id %1$s,
+                      leader_uuid %2$s NOT NULL,
+                      leader_name %2$s NOT NULL,
+                      created_at BIGINT NOT NULL,
+                      disbanded_at BIGINT
+                    )""").formatted(pk, s));
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_party_members (
+                      id %1$s,
+                      party_id BIGINT NOT NULL,
+                      uuid %2$s NOT NULL,
+                      name %2$s NOT NULL,
+                      role %2$s NOT NULL,
+                      joined_at BIGINT NOT NULL
+                    )""").formatted(pk, s));
+            st.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_party_members_pair ON eternal_party_members(party_id, uuid)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_party_members_uuid ON eternal_party_members(uuid)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_party_invites (
+                      id %1$s,
+                      party_id BIGINT NOT NULL,
+                      from_uuid %2$s NOT NULL,
+                      from_name %2$s NOT NULL,
+                      to_uuid %2$s NOT NULL,
+                      to_name %2$s NOT NULL,
+                      status %2$s NOT NULL,
+                      created_at BIGINT NOT NULL,
+                      expires_at BIGINT
+                    )""").formatted(pk, s));
+            st.execute("CREATE INDEX IF NOT EXISTS idx_party_invites_to ON eternal_party_invites(to_uuid, status)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_player_prefs (
+                      uuid %1$s PRIMARY KEY NOT NULL,
+                      allow_friend_requests INTEGER NOT NULL DEFAULT 1,
+                      allow_party_invites INTEGER NOT NULL DEFAULT 1,
+                      autonick_default_display %2$s
+                    )""").formatted(s, t));
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_nick_sessions (
+                      uuid %1$s PRIMARY KEY NOT NULL,
+                      original_name %1$s NOT NULL,
+                      original_group %1$s NOT NULL DEFAULT '',
+                      nick_name %1$s NOT NULL,
+                      nick_group %1$s NOT NULL DEFAULT '',
+                      skin_value %2$s,
+                      skin_signature %2$s,
+                      started_at BIGINT NOT NULL
+                    )""").formatted(s, t));
+        }
+    }
+
+    private static UUID lo(UUID a, UUID b) {
+        return a.toString().compareTo(b.toString()) <= 0 ? a : b;
+    }
+
+    private static UUID hi(UUID a, UUID b) {
+        return a.toString().compareTo(b.toString()) <= 0 ? b : a;
+    }
+
+    @Override
+    public void addFriendship(@NotNull UUID a, @NotNull String nameA, @NotNull UUID b, @NotNull String nameB) {
+        // Canonical ordering so (a,b) and (b,a) collapse to one row.
+        boolean aLow = a.toString().compareTo(b.toString()) <= 0;
+        UUID lo = aLow ? a : b;
+        String loName = aLow ? nameA : nameB;
+        UUID hi = aLow ? b : a;
+        String hiName = aLow ? nameB : nameA;
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_friendships (uuid_a, name_a, uuid_b, name_b, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(uuid_a, uuid_b) DO UPDATE SET name_a=excluded.name_a, name_b=excluded.name_b
+                """ : """
+                INSERT INTO eternal_friendships (uuid_a, name_a, uuid_b, name_b, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE name_a=VALUES(name_a), name_b=VALUES(name_b)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, lo.toString());
+            ps.setString(2, loName);
+            ps.setString(3, hi.toString());
+            ps.setString(4, hiName);
+            ps.setLong(5, System.currentTimeMillis());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("addFriendship failed", ex);
+        }
+    }
+
+    @Override
+    public boolean removeFriendship(@NotNull UUID a, @NotNull UUID b) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM eternal_friendships WHERE uuid_a = ? AND uuid_b = ?")) {
+            ps.setString(1, lo(a, b).toString());
+            ps.setString(2, hi(a, b).toString());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("removeFriendship failed", ex);
+        }
+    }
+
+    @Override
+    public boolean areFriends(@NotNull UUID a, @NotNull UUID b) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT 1 FROM eternal_friendships WHERE uuid_a = ? AND uuid_b = ?")) {
+            ps.setString(1, lo(a, b).toString());
+            ps.setString(2, hi(a, b).toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("areFriends failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<Friend> friendsOf(@NotNull UUID self) {
+        String me = self.toString();
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT uuid_a, name_a, uuid_b, name_b FROM eternal_friendships "
+                             + "WHERE uuid_a = ? OR uuid_b = ? ORDER BY created_at DESC")) {
+            ps.setString(1, me);
+            ps.setString(2, me);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<Friend> out = new ArrayList<>();
+                while (rs.next()) {
+                    String ua = rs.getString("uuid_a");
+                    if (ua.equals(me)) {
+                        out.add(new Friend(UUID.fromString(rs.getString("uuid_b")), rs.getString("name_b")));
+                    } else {
+                        out.add(new Friend(UUID.fromString(ua), rs.getString("name_a")));
+                    }
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("friendsOf failed", ex);
+        }
+    }
+
+    @Override
+    public int friendCount(@NotNull UUID self) {
+        String me = self.toString();
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT COUNT(*) FROM eternal_friendships WHERE uuid_a = ? OR uuid_b = ?")) {
+            ps.setString(1, me);
+            ps.setString(2, me);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("friendCount failed", ex);
+        }
+    }
+
+    @Override
+    public long createFriendRequest(@NotNull UUID from, @NotNull String fromName,
+                                    @NotNull UUID to, @NotNull String toName) {
+        Optional<FriendRequest> existing = findPendingFriendRequest(from, to);
+        if (existing.isPresent()) return existing.get().id();
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "INSERT INTO eternal_friend_requests (from_uuid, from_name, to_uuid, to_name, status, created_at) "
+                             + "VALUES (?, ?, ?, ?, 'PENDING', ?)", Statement.RETURN_GENERATED_KEYS)) {
+            ps.setString(1, from.toString());
+            ps.setString(2, fromName);
+            ps.setString(3, to.toString());
+            ps.setString(4, toName);
+            ps.setLong(5, System.currentTimeMillis());
+            ps.executeUpdate();
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                return keys.next() ? keys.getLong(1) : -1L;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("createFriendRequest failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<FriendRequest> findFriendRequest(long id) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT * FROM eternal_friend_requests WHERE id = ?")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readFriendRequest(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findFriendRequest failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<FriendRequest> findPendingFriendRequest(@NotNull UUID from, @NotNull UUID to) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_friend_requests WHERE from_uuid = ? AND to_uuid = ? AND status = 'PENDING' "
+                             + "ORDER BY created_at DESC")) {
+            ps.setString(1, from.toString());
+            ps.setString(2, to.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readFriendRequest(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findPendingFriendRequest failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<FriendRequest> incomingFriendRequests(@NotNull UUID to) {
+        return friendRequestsByColumn("to_uuid", to);
+    }
+
+    @Override
+    public @NotNull List<FriendRequest> outgoingFriendRequests(@NotNull UUID from) {
+        return friendRequestsByColumn("from_uuid", from);
+    }
+
+    private @NotNull List<FriendRequest> friendRequestsByColumn(@NotNull String column, @NotNull UUID id) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_friend_requests WHERE " + column + " = ? AND status = 'PENDING' "
+                             + "ORDER BY created_at DESC")) {
+            ps.setString(1, id.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                List<FriendRequest> out = new ArrayList<>();
+                while (rs.next()) out.add(readFriendRequest(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("friendRequestsByColumn failed", ex);
+        }
+    }
+
+    @Override
+    public boolean resolveFriendRequest(long id, @NotNull FriendRequest.Status status) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_friend_requests SET status = ?, responded_at = ? WHERE id = ? AND status = 'PENDING'")) {
+            ps.setString(1, status.name());
+            ps.setLong(2, System.currentTimeMillis());
+            ps.setLong(3, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("resolveFriendRequest failed", ex);
+        }
+    }
+
+    private FriendRequest readFriendRequest(@NotNull ResultSet rs) throws SQLException {
+        long responded = rs.getLong("responded_at");
+        boolean respondedNull = rs.wasNull();
+        return new FriendRequest(
+                rs.getLong("id"),
+                UUID.fromString(rs.getString("from_uuid")),
+                rs.getString("from_name"),
+                UUID.fromString(rs.getString("to_uuid")),
+                rs.getString("to_name"),
+                FriendRequest.Status.valueOf(rs.getString("status")),
+                Instant.ofEpochMilli(rs.getLong("created_at")),
+                respondedNull ? null : Instant.ofEpochMilli(responded)
+        );
+    }
+
+    @Override
+    public long createParty(@NotNull UUID leaderUuid, @NotNull String leaderName) {
+        long now = System.currentTimeMillis();
+        try (Connection c = conn()) {
+            long partyId;
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO eternal_parties (leader_uuid, leader_name, created_at) VALUES (?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, leaderUuid.toString());
+                ps.setString(2, leaderName);
+                ps.setLong(3, now);
+                ps.executeUpdate();
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    partyId = keys.next() ? keys.getLong(1) : -1L;
+                }
+            }
+            if (partyId > 0) {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO eternal_party_members (party_id, uuid, name, role, joined_at) VALUES (?, ?, ?, ?, ?)")) {
+                    ps.setLong(1, partyId);
+                    ps.setString(2, leaderUuid.toString());
+                    ps.setString(3, leaderName);
+                    ps.setString(4, PartyMember.ROLE_LEADER);
+                    ps.setLong(5, now);
+                    ps.executeUpdate();
+                }
+            }
+            return partyId;
+        } catch (SQLException ex) {
+            throw new StorageException("createParty failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Party> findParty(long id) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT * FROM eternal_parties WHERE id = ?")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readParty(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findParty failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<Party> findActivePartyOf(@NotNull UUID uuid) {
+        String sql = """
+                SELECT p.* FROM eternal_parties p
+                JOIN eternal_party_members m ON m.party_id = p.id
+                WHERE m.uuid = ? AND p.disbanded_at IS NULL
+                ORDER BY p.created_at DESC LIMIT 1
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readParty(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findActivePartyOf failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<PartyMember> partyMembers(long partyId) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_party_members WHERE party_id = ? ORDER BY joined_at ASC")) {
+            ps.setLong(1, partyId);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<PartyMember> out = new ArrayList<>();
+                while (rs.next()) out.add(readPartyMember(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("partyMembers failed", ex);
+        }
+    }
+
+    @Override
+    public boolean addPartyMember(long partyId, @NotNull UUID uuid, @NotNull String name, @NotNull String role) {
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_party_members (party_id, uuid, name, role, joined_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(party_id, uuid) DO UPDATE SET name=excluded.name, role=excluded.role
+                """ : """
+                INSERT INTO eternal_party_members (party_id, uuid, name, role, joined_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE name=VALUES(name), role=VALUES(role)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, partyId);
+            ps.setString(2, uuid.toString());
+            ps.setString(3, name);
+            ps.setString(4, role);
+            ps.setLong(5, System.currentTimeMillis());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("addPartyMember failed", ex);
+        }
+    }
+
+    @Override
+    public boolean removePartyMember(long partyId, @NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM eternal_party_members WHERE party_id = ? AND uuid = ?")) {
+            ps.setLong(1, partyId);
+            ps.setString(2, uuid.toString());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("removePartyMember failed", ex);
+        }
+    }
+
+    @Override
+    public boolean transferPartyLeader(long partyId, @NotNull UUID newLeaderUuid, @NotNull String newLeaderName) {
+        try (Connection c = conn()) {
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE eternal_parties SET leader_uuid = ?, leader_name = ? WHERE id = ? AND disbanded_at IS NULL")) {
+                ps.setString(1, newLeaderUuid.toString());
+                ps.setString(2, newLeaderName);
+                ps.setLong(3, partyId);
+                if (ps.executeUpdate() == 0) return false;
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE eternal_party_members SET role = ? WHERE party_id = ? AND role = ?")) {
+                ps.setString(1, PartyMember.ROLE_MEMBER);
+                ps.setLong(2, partyId);
+                ps.setString(3, PartyMember.ROLE_LEADER);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE eternal_party_members SET role = ? WHERE party_id = ? AND uuid = ?")) {
+                ps.setString(1, PartyMember.ROLE_LEADER);
+                ps.setLong(2, partyId);
+                ps.setString(3, newLeaderUuid.toString());
+                ps.executeUpdate();
+            }
+            return true;
+        } catch (SQLException ex) {
+            throw new StorageException("transferPartyLeader failed", ex);
+        }
+    }
+
+    @Override
+    public void disbandParty(long partyId) {
+        try (Connection c = conn()) {
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE eternal_parties SET disbanded_at = ? WHERE id = ? AND disbanded_at IS NULL")) {
+                ps.setLong(1, System.currentTimeMillis());
+                ps.setLong(2, partyId);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "DELETE FROM eternal_party_members WHERE party_id = ?")) {
+                ps.setLong(1, partyId);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE eternal_party_invites SET status = 'CANCELLED' WHERE party_id = ? AND status = 'PENDING'")) {
+                ps.setLong(1, partyId);
+                ps.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("disbandParty failed", ex);
+        }
+    }
+
+    private Party readParty(@NotNull ResultSet rs) throws SQLException {
+        long disbanded = rs.getLong("disbanded_at");
+        boolean disbandedNull = rs.wasNull();
+        return new Party(
+                rs.getLong("id"),
+                UUID.fromString(rs.getString("leader_uuid")),
+                rs.getString("leader_name"),
+                Instant.ofEpochMilli(rs.getLong("created_at")),
+                disbandedNull ? null : Instant.ofEpochMilli(disbanded)
+        );
+    }
+
+    private PartyMember readPartyMember(@NotNull ResultSet rs) throws SQLException {
+        return new PartyMember(
+                rs.getLong("id"),
+                rs.getLong("party_id"),
+                UUID.fromString(rs.getString("uuid")),
+                rs.getString("name"),
+                rs.getString("role"),
+                Instant.ofEpochMilli(rs.getLong("joined_at"))
+        );
+    }
+
+    @Override
+    public long createPartyInvite(long partyId, @NotNull UUID from, @NotNull String fromName,
+                                  @NotNull UUID to, @NotNull String toName, @NotNull Instant expiresAt) {
+        Optional<PartyInvite> existing = findPendingPartyInvite(partyId, to);
+        if (existing.isPresent()) return existing.get().id();
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "INSERT INTO eternal_party_invites (party_id, from_uuid, from_name, to_uuid, to_name, status, created_at, expires_at) "
+                             + "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)", Statement.RETURN_GENERATED_KEYS)) {
+            ps.setLong(1, partyId);
+            ps.setString(2, from.toString());
+            ps.setString(3, fromName);
+            ps.setString(4, to.toString());
+            ps.setString(5, toName);
+            ps.setLong(6, System.currentTimeMillis());
+            ps.setLong(7, expiresAt.toEpochMilli());
+            ps.executeUpdate();
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                return keys.next() ? keys.getLong(1) : -1L;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("createPartyInvite failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<PartyInvite> findPartyInvite(long id) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT * FROM eternal_party_invites WHERE id = ?")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readPartyInvite(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findPartyInvite failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<PartyInvite> findPendingPartyInvite(long partyId, @NotNull UUID to) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_party_invites WHERE party_id = ? AND to_uuid = ? AND status = 'PENDING' "
+                             + "ORDER BY created_at DESC")) {
+            ps.setLong(1, partyId);
+            ps.setString(2, to.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readPartyInvite(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findPendingPartyInvite failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<PartyInvite> incomingPartyInvites(@NotNull UUID to) {
+        long now = System.currentTimeMillis();
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_party_invites WHERE to_uuid = ? AND status = 'PENDING' "
+                             + "AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC")) {
+            ps.setString(1, to.toString());
+            ps.setLong(2, now);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<PartyInvite> out = new ArrayList<>();
+                while (rs.next()) out.add(readPartyInvite(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("incomingPartyInvites failed", ex);
+        }
+    }
+
+    @Override
+    public boolean resolvePartyInvite(long id, @NotNull PartyInvite.Status status) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_party_invites SET status = ? WHERE id = ? AND status = 'PENDING'")) {
+            ps.setString(1, status.name());
+            ps.setLong(2, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("resolvePartyInvite failed", ex);
+        }
+    }
+
+    @Override
+    public int expireStalePartyInvites() {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_party_invites SET status = 'EXPIRED' "
+                             + "WHERE status = 'PENDING' AND expires_at IS NOT NULL AND expires_at < ?")) {
+            ps.setLong(1, System.currentTimeMillis());
+            return ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("expireStalePartyInvites failed", ex);
+        }
+    }
+
+    private PartyInvite readPartyInvite(@NotNull ResultSet rs) throws SQLException {
+        long expires = rs.getLong("expires_at");
+        boolean expiresNull = rs.wasNull();
+        return new PartyInvite(
+                rs.getLong("id"),
+                rs.getLong("party_id"),
+                UUID.fromString(rs.getString("from_uuid")),
+                rs.getString("from_name"),
+                UUID.fromString(rs.getString("to_uuid")),
+                rs.getString("to_name"),
+                PartyInvite.Status.valueOf(rs.getString("status")),
+                Instant.ofEpochMilli(rs.getLong("created_at")),
+                expiresNull ? null : Instant.ofEpochMilli(expires)
+        );
+    }
+
+    @Override
+    public @NotNull PlayerPrefs playerPrefs(@NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT * FROM eternal_player_prefs WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return PlayerPrefs.defaults(uuid);
+                String display = rs.getString("autonick_default_display");
+                if (rs.wasNull()) display = null;
+                return new PlayerPrefs(
+                        uuid,
+                        rs.getInt("allow_friend_requests") != 0,
+                        rs.getInt("allow_party_invites") != 0,
+                        display
+                );
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("playerPrefs failed", ex);
+        }
+    }
+
+    @Override
+    public void upsertPlayerPrefs(@NotNull PlayerPrefs prefs) {
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_player_prefs (uuid, allow_friend_requests, allow_party_invites, autonick_default_display)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(uuid) DO UPDATE SET
+                  allow_friend_requests=excluded.allow_friend_requests,
+                  allow_party_invites=excluded.allow_party_invites,
+                  autonick_default_display=excluded.autonick_default_display
+                """ : """
+                INSERT INTO eternal_player_prefs (uuid, allow_friend_requests, allow_party_invites, autonick_default_display)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  allow_friend_requests=VALUES(allow_friend_requests),
+                  allow_party_invites=VALUES(allow_party_invites),
+                  autonick_default_display=VALUES(autonick_default_display)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, prefs.uuid().toString());
+            ps.setInt(2, prefs.allowFriendRequests() ? 1 : 0);
+            ps.setInt(3, prefs.allowPartyInvites() ? 1 : 0);
+            if (prefs.autonickDefaultDisplay() == null) ps.setNull(4, java.sql.Types.VARCHAR);
+            else ps.setString(4, prefs.autonickDefaultDisplay());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("upsertPlayerPrefs failed", ex);
+        }
+    }
+
+    @Override
+    public void startNickSession(@NotNull NickSession session) {
+        String sql = isSqlite() ? """
+                INSERT INTO eternal_nick_sessions (uuid, original_name, original_group, nick_name, nick_group, skin_value, skin_signature, started_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(uuid) DO UPDATE SET
+                  original_name=excluded.original_name, original_group=excluded.original_group,
+                  nick_name=excluded.nick_name, nick_group=excluded.nick_group,
+                  skin_value=excluded.skin_value, skin_signature=excluded.skin_signature,
+                  started_at=excluded.started_at
+                """ : """
+                INSERT INTO eternal_nick_sessions (uuid, original_name, original_group, nick_name, nick_group, skin_value, skin_signature, started_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  original_name=VALUES(original_name), original_group=VALUES(original_group),
+                  nick_name=VALUES(nick_name), nick_group=VALUES(nick_group),
+                  skin_value=VALUES(skin_value), skin_signature=VALUES(skin_signature),
+                  started_at=VALUES(started_at)
+                """;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, session.uuid().toString());
+            ps.setString(2, session.originalName());
+            ps.setString(3, session.originalGroup());
+            ps.setString(4, session.nickName());
+            ps.setString(5, session.nickGroup());
+            if (session.skinValue() == null) ps.setNull(6, java.sql.Types.VARCHAR);
+            else ps.setString(6, session.skinValue());
+            if (session.skinSignature() == null) ps.setNull(7, java.sql.Types.VARCHAR);
+            else ps.setString(7, session.skinSignature());
+            ps.setLong(8, session.startedAt().toEpochMilli());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("startNickSession failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<NickSession> findNickSession(@NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT * FROM eternal_nick_sessions WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readNickSession(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findNickSession failed", ex);
+        }
+    }
+
+    @Override
+    public boolean endNickSession(@NotNull UUID uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM eternal_nick_sessions WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("endNickSession failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<NickSession> activeNickSessions() {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT * FROM eternal_nick_sessions");
+             ResultSet rs = ps.executeQuery()) {
+            List<NickSession> out = new ArrayList<>();
+            while (rs.next()) out.add(readNickSession(rs));
+            return out;
+        } catch (SQLException ex) {
+            throw new StorageException("activeNickSessions failed", ex);
+        }
+    }
+
+    private NickSession readNickSession(@NotNull ResultSet rs) throws SQLException {
+        String skinValue = rs.getString("skin_value");
+        String skinSig = rs.getString("skin_signature");
+        return new NickSession(
+                UUID.fromString(rs.getString("uuid")),
+                rs.getString("original_name"),
+                rs.getString("original_group"),
+                rs.getString("nick_name"),
+                rs.getString("nick_group"),
+                skinValue,
+                skinSig,
+                Instant.ofEpochMilli(rs.getLong("started_at"))
+        );
     }
 }

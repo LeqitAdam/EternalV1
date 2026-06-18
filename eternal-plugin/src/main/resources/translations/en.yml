@@ -39,6 +39,9 @@ consent-prompt: |-
 consent-accepted: "{prefix}&aThanks! You can play now."
 consent-not-pending: "{prefix}&7You've already accepted — nothing to do."
 consent-blocked-command: "{prefix}&cPlease confirm the privacy GUI first."
+# Proxy hint (BungeeCord): /eternal accept|decline is gone — consent flows
+# through the GUI on the backend server.
+consent-use-gui: "{prefix}&7Please use the privacy &fGUI&7 that opened automatically when you joined."
 
 # --- Consent GUI ---
 # Opened on first join. Click accept/decline; closing without picking

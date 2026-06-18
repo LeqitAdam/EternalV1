@@ -14,6 +14,12 @@
     <artifactId>eternal-spigot</artifactId>
     <packaging>jar</packaging>
 
+    <!--
+      Plain code library: the Spigot side of Eternal. It carries NO descriptor
+      and NO resources of its own — the single deployable jar (eternal-plugin)
+      shades these classes in and ships the unified plugin.yml + config +
+      translations. Building this module alone produces a non-plugin lib jar.
+    -->
     <dependencies>
         <dependency>
             <groupId>de.eternal</groupId>
@@ -21,8 +27,7 @@
         </dependency>
         <dependency>
             <!-- ReplayApi at compile-time only; the EternalReplay plugin
-                 supplies the impl at runtime via Bukkit ServicesManager.
-                 'provided' keeps it out of the shaded JAR. -->
+                 supplies the impl at runtime via Bukkit ServicesManager. -->
             <groupId>de.eternal</groupId>
             <artifactId>eternal-replay</artifactId>
             <scope>provided</scope>
@@ -36,56 +41,4 @@
             <artifactId>annotations</artifactId>
         </dependency>
     </dependencies>
-
-    <build>
-        <finalName>EternalSpigot-${project.version}</finalName>
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
-            </resource>
-        </resources>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals><goal>shade</goal></goals>
-                        <configuration>
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <minimizeJar>false</minimizeJar>
-                            <relocations>
-                                <relocation>
-                                    <pattern>com.zaxxer.hikari</pattern>
-                                    <shadedPattern>de.eternal.libs.hikari</shadedPattern>
-                                </relocation>
-                                <!--
-                                  org.sqlite NICHT relocaten: die mitgelieferte
-                                  native lib ruft via JNI zurueck auf
-                                  org.sqlite.core.NativeDB — wenn die Klasse
-                                  umbenannt ist, knallt es mit NoSuchFieldError.
-                                -->
-                                <relocation>
-                                    <pattern>com.mysql</pattern>
-                                    <shadedPattern>de.eternal.libs.mysql</shadedPattern>
-                                </relocation>
-                            </relocations>
-                            <filters>
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 </project>

@@ -68,4 +68,22 @@ public final class Configs {
         if (v instanceof List<?> l) return (List<Map<String, Object>>) l;
         return Collections.emptyList();
     }
+
+    /**
+     * A list-of-strings YAML value (e.g. {@code nickable-groups: [player, premium]}).
+     * Each element is {@code toString()}'d and blanks are dropped. Returns
+     * {@code fallback} when the key is absent or not a list.
+     */
+    public static @NotNull List<String> stringListOr(@NotNull Map<String, Object> map, @NotNull String key,
+                                                      @NotNull List<String> fallback) {
+        Object v = map.get(key);
+        if (!(v instanceof List<?> l)) return fallback;
+        List<String> out = new java.util.ArrayList<>(l.size());
+        for (Object o : l) {
+            if (o == null) continue;
+            String s = o.toString().trim();
+            if (!s.isEmpty()) out.add(s);
+        }
+        return out;
+    }
 }

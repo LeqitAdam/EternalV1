@@ -1,0 +1,26 @@
+name: EternalParty
+version: ${project.version}
+main: de.eternal.party.spigot.EternalPartySpigot
+api-version: '1.19'
+author: Eternal
+description: Eternal Party + Friends (Spigot backend)
+
+commands:
+  party:
+    description: Party-Menue und Verwaltung.
+    usage: /party [accept|deny|invite|leave|disband|kick|list|info]
+    aliases: [p]
+    permission: eternal.party.use
+  friend:
+    description: Freunde verwalten.
+    usage: /friend [add|accept|deny|remove|list]
+    aliases: [f, friends]
+    permission: eternal.party.use
+
+permissions:
+  eternal.party.use:
+    description: Darf Party + Freunde nutzen.
+    default: true
+  eternal.party.bypass-invite-settings:
+    description: Darf auch Spieler einladen, die Einladungen deaktiviert haben.
+    default: false
