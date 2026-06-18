@@ -61,6 +61,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/players/players.component').then(m => m.PlayersComponent)
       },
       {
+        path: 'chat-logs',
+        canActivate: [staffGuard],
+        loadComponent: () => import('./pages/chat-logs/chat-logs.component').then(m => m.ChatLogsComponent)
+      },
+      {
         path: 'players/:name',
         canActivate: [staffGuard],
         loadComponent: () => import('./pages/players/player-detail.component').then(m => m.PlayerDetailComponent)

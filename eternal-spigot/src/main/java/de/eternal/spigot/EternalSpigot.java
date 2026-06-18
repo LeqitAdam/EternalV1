@@ -24,9 +24,16 @@ import de.eternal.spigot.listener.ChatListener;
 import de.eternal.spigot.listener.ConnectionListener;
 import de.eternal.spigot.report.BungeeChannelBridge;
 // ReportActions/ReportListGui/ReportGuiListener wurden entfernt — Staff-Side komplett im Dashboard.
+import de.eternal.core.base.BaseStorage;
+import de.eternal.core.config.Configs;
+import de.eternal.spigot.listener.BaseListener;
+import org.bukkit.Location;
+import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
@@ -38,6 +45,9 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -67,6 +77,15 @@ public final class EternalSpigot extends JavaPlugin {
     private de.eternal.spigot.consent.ConsentService consentService;
     private de.eternal.spigot.consent.ConsentGui consentGui;
     private ConnectionListener connectionListener;
+    private de.eternal.spigot.chatlog.ChatLogWriter chatLogWriter;
+
+    // --- base system (teleport, gamemode, fly, homes/warps/spawn, /sign, ...) ---
+    private Sessions baseSessions;
+    private int baseMaxHomes = 3;
+    private int baseTpaExpiry = 60;
+    private boolean baseBackOnDeath = true;
+    private String baseDefaultHomeName = "home";
+    private DateTimeFormatter baseDateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     @Override
     public void onEnable() {
@@ -89,6 +108,11 @@ public final class EternalSpigot extends JavaPlugin {
     @Override
     public void onDisable() {
         if (actionPoller != null) actionPoller.stop();
+        // Flush any queued chat-log entries to DB + files before the storage
+        // connection is closed below.
+        if (chatLogWriter != null) {
+            try { chatLogWriter.stop(); } catch (Exception ignored) {}
+        }
         if (cloudNetBridge != null) cloudNetBridge.detachAll();
         if (storage != null) {
             try { storage.close(); } catch (Exception ignored) {}
@@ -140,6 +164,18 @@ public final class EternalSpigot extends JavaPlugin {
         this.currentLanguage = String.valueOf(cfgMap.getOrDefault("language", "de")).toLowerCase();
         this.messages = loadTranslation(currentLanguage);
 
+        // Base-system config (homes/warps/tpa). Re-read on /eternal reload.
+        Map<String, Object> baseSec = Configs.sectionOr(cfgMap, "base");
+        this.baseMaxHomes = Math.max(1, Configs.intOr(baseSec, "max-homes", 3));
+        this.baseTpaExpiry = Math.max(5, Configs.intOr(baseSec, "tpa-expiry-seconds", 60));
+        this.baseBackOnDeath = Configs.boolOr(baseSec, "back-on-death", true);
+        this.baseDefaultHomeName = Configs.stringOr(baseSec, "default-home-name", "home");
+        try {
+            this.baseDateFormat = DateTimeFormatter.ofPattern(messages.get("date-format"));
+        } catch (Exception ex) {
+            this.baseDateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        }
+
         if (storage == null) {
             this.storage = new SqlStorage(coreConfig.database());
             this.storage.init();
@@ -148,6 +184,14 @@ public final class EternalSpigot extends JavaPlugin {
             this.staffRegistry = new OnlineStaffRegistry();
             this.cloudPerms = new CloudPermsAccess(getLogger());
             Tiers.init(this.cloudPerms);
+            this.baseSessions = new Sessions();
+
+            // Chat-log + social-spy writer. SqlStorage implements ChatLogStorage;
+            // the writer batches into the DB tables + per-server flat files on an
+            // async timer and carries the outgoing eternal:socialspy messages.
+            this.chatLogWriter = new de.eternal.spigot.chatlog.ChatLogWriter(
+                    this, (de.eternal.core.chatlog.ChatLogStorage) storage, coreConfig.chatlog());
+            this.chatLogWriter.start();
 
             // CloudNet bridge — only attached when CloudPerms is actually
             // present. Translates CloudNet group membership into eternal.*
@@ -264,12 +308,45 @@ public final class EternalSpigot extends JavaPlugin {
         bind("resethistory", new de.eternal.spigot.command.ResetHistoryCommand(this));
         bind("modify", new de.eternal.spigot.command.ModifyCommand(this));
         bind("eternal", new EternalCommand(this));
+        registerBaseCommands();
+    }
+
+    /** Base-system commands (de.eternal.spigot.command). Grouped executors handle
+     *  several command names each; missing entries warn instead of aborting. */
+    private void registerBaseCommands() {
+        bindBase(new de.eternal.spigot.command.TeleportCommand(this), "tp", "tphere", "tppos", "top");
+        bindBase(new de.eternal.spigot.command.TpaCommand(this), "tpa", "tpahere", "tpaccept", "tpdeny");
+        bindBase(new de.eternal.spigot.command.GamemodeCommand(this), "gamemode");
+        bindBase(new de.eternal.spigot.command.FlyCommand(this), "fly");
+        bindBase(new de.eternal.spigot.command.SpeedCommand(this), "speed");
+        bindBase(new de.eternal.spigot.command.StateCommand(this), "god", "heal", "feed");
+        bindBase(new de.eternal.spigot.command.SpawnCommand(this), "setspawn", "spawn", "back");
+        bindBase(new de.eternal.spigot.command.HomeCommand(this), "sethome", "home", "delhome", "homes");
+        bindBase(new de.eternal.spigot.command.WarpCommand(this), "setwarp", "warp", "delwarp", "warps");
+        bindBase(new de.eternal.spigot.command.ItemCommand(this), "hat", "repair", "more", "sign");
+        bindBase(new de.eternal.spigot.command.InventoryCommand(this), "clearinventory", "enderchest", "workbench", "invsee");
+        bindBase(new de.eternal.spigot.command.WorldCommand(this), "time", "day", "night", "weather");
+        bindBase(new de.eternal.spigot.command.CommsCommand(this), "broadcast", "msg", "reply", "kill");
+        bindBase(new de.eternal.spigot.command.VanishCommand(this), "vanish");
+        bindBase(new de.eternal.spigot.command.SocialSpyCommand(this), "socialspy");
     }
 
     private void bind(@NotNull String name, @NotNull org.bukkit.command.CommandExecutor exec) {
         PluginCommand cmd = Objects.requireNonNull(getCommand(name), "Command " + name + " nicht in plugin.yml");
         cmd.setExecutor(exec);
         if (exec instanceof org.bukkit.command.TabCompleter tc) cmd.setTabCompleter(tc);
+    }
+
+    private void bindBase(@NotNull CommandExecutor exec, @NotNull String... names) {
+        for (String name : names) {
+            PluginCommand cmd = getCommand(name);
+            if (cmd == null) {
+                getLogger().warning("Base-Command " + name + " fehlt in plugin.yml");
+                continue;
+            }
+            cmd.setExecutor(exec);
+            if (exec instanceof TabCompleter tc) cmd.setTabCompleter(tc);
+        }
     }
 
     private void registerListeners() {
@@ -292,6 +369,11 @@ public final class EternalSpigot extends JavaPlugin {
         // ReportGuiListener entfernt — kein ingame-Reports-GUI mehr.
         getServer().getPluginManager().registerEvents(
                 new de.eternal.spigot.report.ReportReasonGuiListener(this, reportReasonGui, reportCommandRef.cooldownMap()), this);
+        // Base-system listener: /back death position, /god damage cancel, /vanish hide.
+        getServer().getPluginManager().registerEvents(new BaseListener(this), this);
+        // Chat-log capture (MONITOR): public chat + commands -> ChatLogWriter.
+        getServer().getPluginManager().registerEvents(
+                new de.eternal.spigot.chatlog.ChatLogListener(this), this);
     }
 
     /* ----------------------------------------------------------------- */
@@ -318,4 +400,26 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull de.eternal.spigot.consent.ConsentService consent() { return consentService; }
     public @NotNull de.eternal.spigot.consent.ConsentGui consentGui() { return consentGui; }
     public @NotNull ConnectionListener connectionListener() { return connectionListener; }
+    /** Async batched chat-log writer + outgoing eternal:socialspy helper. */
+    public @NotNull de.eternal.spigot.chatlog.ChatLogWriter chatLogWriter() { return chatLogWriter; }
+
+    /* --- base system accessors --------------------------------------- */
+    public @NotNull Sessions sessions() { return baseSessions; }
+    /** Same backing {@link SqlStorage}, typed for base-system homes/warps/spawn. */
+    public @NotNull BaseStorage base() { return (BaseStorage) storage; }
+    public @NotNull String serverName() { return coreConfig.serverName(); }
+    public int maxHomes() { return baseMaxHomes; }
+    public int tpaExpiry() { return baseTpaExpiry; }
+    public boolean backOnDeath() { return baseBackOnDeath; }
+    public @NotNull String defaultHomeName() { return baseDefaultHomeName; }
+
+    /** Teleport that records the player's current spot for /back first. */
+    public void teleport(@NotNull Player p, @NotNull Location to) {
+        baseSessions.back.put(p.getUniqueId(), p.getLocation());
+        p.teleport(to);
+    }
+
+    public @NotNull String nowFormatted() {
+        return baseDateFormat.format(ZonedDateTime.now(ZoneId.systemDefault()));
+    }
 }

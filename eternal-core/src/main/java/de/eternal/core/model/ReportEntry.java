@@ -29,6 +29,12 @@ public record ReportEntry(
          *  still running, but also for reports that pre-date the replay
          *  system or where the recorder was idle. Surfaced in /history
          *  so staff can /replay play <id> the recording later. */
-        @Nullable Long replayId
+        @Nullable Long replayId,
+        /** JSON snapshot (array of {@link ChatLogEntry}) of the chat context
+         *  around this report, persisted once the +after window has closed.
+         *  Null until finalized — the chat endpoint computes it live and only
+         *  writes it back via {@code linkReportChatHistory} when the window
+         *  has elapsed. Tolerated as a missing column on un-migrated DBs. */
+        @Nullable String chatHistory
 ) {
 }

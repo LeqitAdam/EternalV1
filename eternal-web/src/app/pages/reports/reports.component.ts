@@ -7,18 +7,26 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../core/api.service';
-import { Report, ReportStatusFilter } from '../../core/models';
+import { Report, ReportChat, ReportStatusFilter } from '../../core/models';
 import { CloseReportDialogComponent } from './close-report-dialog.component';
 import { BanFromReportDialogComponent, BanDialogResult } from './ban-from-report-dialog.component';
 import { MuteFromReportDialogComponent, MuteDialogResult } from './mute-from-report-dialog.component';
+import { ChatTranscriptComponent } from '../../shared/chat-transcript/chat-transcript.component';
+
+/** Report reasons that warrant a chat-history view. We also treat any
+ *  reasonId starting with "chat" as a chat offence (the backend may add
+ *  new chat-* reasons over time). */
+const CHAT_REASONS = new Set(['chat-insult', 'chat-spam', 'advertising', 'werbung']);
 
 @Component({
   selector: 'et-reports',
   standalone: true,
   imports: [
     CommonModule, DatePipe, MatCardModule, MatButtonModule, MatIconModule,
-    MatProgressSpinnerModule, MatSnackBarModule, MatTabsModule, MatDialogModule
+    MatProgressSpinnerModule, MatSnackBarModule, MatTabsModule, MatDialogModule,
+    MatProgressBarModule, ChatTranscriptComponent
   ],
   template: `
     <h1 class="text-3xl font-bold mb-2">Reports</h1>
@@ -93,6 +101,29 @@ import { MuteFromReportDialogComponent, MuteDialogResult } from './mute-from-rep
             <mat-icon>close</mat-icon> Schließen
           </button>
         </div>
+
+        <!-- Chat-Verlauf für Chat-Reports (chat-insult, chat-spam, Werbung …).
+             Lazy: erst beim Aufklappen wird api.reportChat() geholt. -->
+        <div *ngIf="isChatReport(r)" class="mt-4 pt-4 border-t border-ink-700/40">
+          <button mat-stroked-button (click)="toggleChat(r)">
+            <mat-icon>{{ expanded() === r.id ? 'expand_less' : 'forum' }}</mat-icon>
+            {{ expanded() === r.id ? 'Chat-Verlauf ausblenden' : 'Chat-Verlauf anzeigen' }}
+          </button>
+
+          <div *ngIf="expanded() === r.id" class="mt-3">
+            <div *ngIf="chatLoading()" class="flex justify-center py-6"><mat-spinner diameter="28" /></div>
+            <div *ngIf="chatError()" class="text-red-300 text-sm py-2">{{ chatError() }}</div>
+
+            <ng-container *ngIf="!chatLoading() && !chatError() && chat() as c">
+              <div *ngIf="!c.finalized"
+                   class="mb-3 p-2 bg-amber-900/30 border border-amber-700/40 rounded text-amber-200 text-xs">
+                Nachrichten nach der Meldung werden noch gesammelt — der Verlauf
+                kann sich noch erweitern.
+              </div>
+              <et-chat-transcript [messages]="c.items" [highlightAt]="c.anchorAt" />
+            </ng-container>
+          </div>
+        </div>
       </mat-card>
     </div>
   `
@@ -107,7 +138,36 @@ export class ReportsComponent {
   readonly loading = signal(true);
   private filter: ReportStatusFilter = 'active';
 
+  /* --- chat-history (inline, expandable per report) --- */
+  readonly expanded = signal<number | null>(null);
+  readonly chat = signal<ReportChat | null>(null);
+  readonly chatLoading = signal(false);
+  readonly chatError = signal<string | null>(null);
+
   constructor() { this.refresh(); }
+
+  /** Chat offences: known reason ids + any reasonId starting with "chat". */
+  isChatReport(r: Report): boolean {
+    const id = (r.reasonId ?? '').toLowerCase();
+    return CHAT_REASONS.has(id) || id.startsWith('chat');
+  }
+
+  /** Expand/collapse the inline chat-history for a report, lazily fetching it. */
+  toggleChat(r: Report) {
+    if (this.expanded() === r.id) {
+      this.expanded.set(null);
+      this.chat.set(null);
+      return;
+    }
+    this.expanded.set(r.id);
+    this.chat.set(null);
+    this.chatError.set(null);
+    this.chatLoading.set(true);
+    this.api.reportChat(r.id).subscribe({
+      next: c => { this.chat.set(c); this.chatLoading.set(false); },
+      error: e => { this.chatError.set(e.error?.error ?? e.message ?? 'Chat-Verlauf konnte nicht geladen werden.'); this.chatLoading.set(false); }
+    });
+  }
 
   onTab(idx: number) {
     this.filter = (['active', 'open', 'claimed', 'closed', 'all'] as ReportStatusFilter[])[idx];

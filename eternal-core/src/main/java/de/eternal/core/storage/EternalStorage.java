@@ -159,6 +159,11 @@ public interface EternalStorage extends AutoCloseable {
      *  Unban-Flow genutzt um zugehoerige Replays zu loeschen. */
     @NotNull List<ReportEntry> findReportsByBanId(long banId);
 
+    /** Persists the finalized chat-context JSON snapshot onto a report.
+     *  Called by the chat endpoint once the +after window has elapsed so
+     *  the captured transcript is frozen and re-reads return finalized. */
+    void linkReportChatHistory(long reportId, @Nullable String chatHistoryJson);
+
     /* --- Account-Link & Web-Sessions ------------------------------------ */
 
     void createLinkCode(@NotNull LinkCode code);

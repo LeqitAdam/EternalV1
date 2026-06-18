@@ -101,3 +101,38 @@ cloudnet:
       tier: 0
       permissions:
         - eternal.report
+
+# Basesystem (Teleport, Gamemode, Fly, Homes/Warps/Spawn, /sign, ...).
+base:
+  # Maximale Anzahl Homes pro Spieler (eternal.base.home.unlimited umgeht das).
+  max-homes: 3
+  # Gueltigkeit einer /tpa-Anfrage in Sekunden.
+  tpa-expiry-seconds: 60
+  # /back merkt sich auch die Todesposition.
+  back-on-death: true
+  # Default-Home-Name, wenn /sethome ohne Namen genutzt wird.
+  default-home-name: home
+
+# Chat-Log + Social-Spy. Loggt Chat/Commands in DB-Tabellen + pro-Server-Dateien
+# und liefert den Report-Kontext (Nachrichten rund um eine Meldung) ans
+# Web-Dashboard. Social-Spy spiegelt private Nachrichten netzwerkweit an
+# eingeloggte Teammitglieder.
+chatlog:
+  enabled: true
+  directory: "chatlogs"               # relativ zum Plugin-dataFolder
+  log-chat: true
+  log-commands: true
+  report-context-before: 10
+  report-context-after: 10
+  report-context-window-seconds: 120  # wie lange gewartet wird, bevor das +after-Fenster finalisiert wird
+  flush-interval-ticks: 40            # Spigot-Async-Flush-Takt (~2s)
+  sensitive-commands:                 # erstes Token (ohne Slash), case-insensitive
+    - "login"
+    - "l"
+    - "register"
+    - "reg"
+    - "changepassword"
+    - "changepass"
+    - "2fa"
+    - "authme"
+  socialspy-network: true
