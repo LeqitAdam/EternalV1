@@ -49,6 +49,7 @@ public final class EternalBungee extends Plugin {
     private de.eternal.core.integration.CloudPermsAccess cloudPerms;
     private de.eternal.bungee.listener.CloudNetBridgeListener cloudNetBridge;
     private de.eternal.bungee.api.AdminActionPoller adminActionPoller;
+    private de.eternal.bungee.listener.SocialSpyListener socialSpyListener;
 
     @Override
     public void onEnable() {
@@ -64,6 +65,14 @@ public final class EternalBungee extends Plugin {
             // fanout to every notify-permission player on the proxy.
             getProxy().getPluginManager().registerListener(this,
                     new de.eternal.bungee.listener.StaffBroadcastListener(this));
+            // Network-wide social spy: backends fan their /msg deliveries to
+            // this proxy channel; we forward each spy line to every online
+            // staffer who has social-spy enabled (mirrors staff-broadcast).
+            // The listener registers the eternal:socialspy channel in its
+            // constructor and starts a 60s resync task to self-heal the set.
+            this.socialSpyListener = new de.eternal.bungee.listener.SocialSpyListener(this);
+            getProxy().getPluginManager().registerListener(this, this.socialSpyListener);
+            this.socialSpyListener.start();
             // Admin-action poller: applies web-driven CloudNet group
             // changes (works for offline players — CN store is central).
             this.adminActionPoller = new de.eternal.bungee.api.AdminActionPoller(this);
@@ -78,6 +87,7 @@ public final class EternalBungee extends Plugin {
     @Override
     public void onDisable() {
         if (adminActionPoller != null) adminActionPoller.stop();
+        if (socialSpyListener != null) socialSpyListener.stop();
         if (storage != null) {
             try { storage.close(); } catch (Exception ignored) {}
         }
@@ -126,7 +136,8 @@ public final class EternalBungee extends Plugin {
                     String.valueOf(cfg.get("proxy-name")),
                     coreConfig.database(),
                     coreConfig.reports(),
-                    coreConfig.history());
+                    coreConfig.history(),
+                    coreConfig.chatlog());
         }
         this.reasonsConfig = ReasonsConfig.fromMap(reasons);
 

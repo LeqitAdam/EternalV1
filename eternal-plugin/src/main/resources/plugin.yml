@@ -94,6 +94,7 @@ commands:
   reply:     { description: Antworten., usage: /reply <text>, aliases: [r], permission: eternal.base.msg }
   kill:      { description: Toeten., usage: /kill [Spieler], permission: eternal.base.kill }
   vanish:    { description: Unsichtbar., usage: /vanish [Spieler], aliases: [v], permission: eternal.base.vanish }
+  socialspy: { description: Private Nachrichten mitlesen., usage: /socialspy [on|off], aliases: [spy], permission: eternal.socialspy }
 
 permissions:
   eternal.ban:
@@ -191,3 +192,13 @@ permissions:
   eternal.base.kill.others: { default: op }
   eternal.base.vanish: { default: op }
   eternal.base.home.unlimited: { default: op, description: Umgeht das Home-Limit. }
+  # --- chat-log / social-spy ---
+  eternal.socialspy:
+    description: Darf private Nachrichten netzwerkweit mitlesen.
+    default: op
+  eternal.web.chatlogs:
+    description: Darf die Chat-Logs im Web-Dashboard einsehen.
+    default: op
+  eternal.web.chatlogs.sensitive:
+    description: Darf sensible Logs (Login/Register/Passwoerter) im Web-Dashboard einsehen.
+    default: op

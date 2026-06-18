@@ -9,7 +9,8 @@ public record CoreConfig(
         @NotNull String serverName,
         @NotNull DatabaseConfig database,
         @NotNull ReportSettings reports,
-        @NotNull HistorySettings history
+        @NotNull HistorySettings history,
+        @NotNull ChatlogConfig chatlog
 ) {
 
     public record ReportSettings(
@@ -46,7 +47,8 @@ public record CoreConfig(
                 Configs.stringOr(raw, "server-name", "lobby"),
                 DatabaseConfig.fromMap(Configs.sectionOr(raw, "database"), dataFolder),
                 ReportSettings.fromMap(Configs.sectionOr(raw, "reports")),
-                HistorySettings.fromMap(Configs.sectionOr(raw, "history"))
+                HistorySettings.fromMap(Configs.sectionOr(raw, "history")),
+                ChatlogConfig.fromMap(Configs.sectionOr(raw, "chatlog"), dataFolder)
         );
     }
 }

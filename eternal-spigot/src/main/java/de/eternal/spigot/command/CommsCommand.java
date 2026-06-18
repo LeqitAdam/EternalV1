@@ -86,6 +86,33 @@ public final class CommsCommand implements CommandExecutor, TabCompleter {
         }
         plugin.sessions().reply.put(target.getUniqueId(),
                 sender instanceof Player sp ? sp.getUniqueId() : target.getUniqueId());
+
+        // Chat-log + network-wide social spy. Console has no UUID — use a
+        // stable sentinel so the row still inserts (sender_uuid is NOT NULL).
+        String senderUuid = sender instanceof Player sp
+                ? sp.getUniqueId().toString()
+                : "00000000-0000-0000-0000-000000000000";
+        String targetUuid = target.getUniqueId().toString();
+        String targetName = target.getName();
+
+        plugin.chatLogWriter().enqueue(new de.eternal.core.model.ChatLogEntry(
+                0L,
+                de.eternal.core.model.ChatLogKind.MSG,
+                plugin.serverName(),
+                senderUuid,
+                senderName,
+                targetUuid,
+                targetName,
+                text,
+                java.time.Instant.now()
+        ));
+
+        // Fan out the spy line NETWORK-WIDE via the proxy. Carrier = the sender
+        // player (Console can't carry a plugin message — spy of a console PM is
+        // skipped, which is fine). The proxy delivers to every spying staff
+        // member, so we deliberately do NOT also deliver locally.
+        Player carrier = sender instanceof Player sp ? sp : target;
+        plugin.chatLogWriter().sendSpy(carrier, plugin.serverName(), senderName, targetName, text);
     }
 
     private void kill(CommandSender sender, String[] args) {

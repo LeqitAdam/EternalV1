@@ -194,14 +194,17 @@ report-reasons:
     label: "Beleidigung im Chat"
     material: WRITABLE_BOOK
     slot: 11
+    category: chat
   - id: chat-spam
     label: "Spam / Caps"
     material: BELL
     slot: 13
+    category: chat
   - id: advertising
     label: "Werbung / Advertising"
     material: OAK_SIGN
     slot: 15
+    category: chat
   - id: skin-name
     label: "Unangemessener Skin / Name"
     material: PLAYER_HEAD

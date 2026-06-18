@@ -3,7 +3,10 @@ package de.eternal.core.storage.sql;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import de.eternal.core.base.BaseStorage;
+import de.eternal.core.chatlog.ChatLogStorage;
 import de.eternal.core.config.DatabaseConfig;
+import de.eternal.core.model.ChatLogEntry;
+import de.eternal.core.model.ChatLogKind;
 import de.eternal.core.model.Friend;
 import de.eternal.core.model.Loc;
 import de.eternal.core.model.FriendRequest;
@@ -41,16 +44,18 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Single SQL backend that handles both SQLite and MySQL via dialect switches.
  * Schema is identical except for AUTOINCREMENT vs AUTO_INCREMENT.
  */
-public final class SqlStorage implements EternalStorage, PermissionStorage, SocialStorage, BaseStorage {
+public final class SqlStorage implements EternalStorage, PermissionStorage, SocialStorage, BaseStorage, ChatLogStorage {
 
     private final DatabaseConfig config;
     private HikariDataSource dataSource;
@@ -251,12 +256,14 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             migrateAddPunishmentAppealCols(c);
             migrateAddAppealDecisionMessage(c);
             migrateAddReportReplayId(c);
+            migrateAddReportChatHistory(c);
             createPermissionTables(c);
             createConsentTable(c);
             createCloudGroupsTable(c);
             migrateAddProfileGroups(c);
             createSocialTables(c);
             createBaseTables(c);
+            createChatLogTables(c);
         } catch (SQLException ex) {
             throw new StorageException("Could not create schema", ex);
         }
@@ -510,6 +517,15 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
      *  zeigen und {@code /replay play <id>} sie wieder abspielen kann. */
     private void migrateAddReportReplayId(@NotNull Connection c) {
         runIdempotent(c, "ALTER TABLE eternal_reports ADD COLUMN replay_id BIGINT");
+    }
+
+    /** Idempotent ALTER für die Chat-Verlaufs-Spalte auf eternal_reports.
+     *  Speichert einen JSON-Snapshot der Chat-Logs rund um den Report,
+     *  sobald das Nachher-Fenster geschlossen ist (siehe
+     *  {@link #linkReportChatHistory}). readReport toleriert die fehlende
+     *  Spalte auf nicht-migrierten DBs. */
+    private void migrateAddReportChatHistory(@NotNull Connection c) {
+        runIdempotent(c, "ALTER TABLE eternal_reports ADD COLUMN chat_history " + longTextType());
     }
 
     /** Idempotent ALTER fuer ban_id-Verlinkung in eternal_reports. */
@@ -1143,6 +1159,13 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             if (!rs.wasNull()) replayId = rid;
         } catch (SQLException ignored) { /* column not yet present */ }
 
+        // chat_history is added by migrateAddReportChatHistory; tolerate the
+        // column being absent on databases that haven't run it yet.
+        String chatHistory = null;
+        try {
+            chatHistory = rs.getString("chat_history");
+        } catch (SQLException ignored) { /* column not yet present */ }
+
         return new ReportEntry(
                 rs.getLong("id"),
                 UUID.fromString(rs.getString("reporter_uuid")),
@@ -1160,7 +1183,8 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                 claimedNull ? null : Instant.ofEpochMilli(claimed),
                 closedNull ? null : Instant.ofEpochMilli(closed),
                 rs.getString("resolution"),
-                replayId
+                replayId,
+                chatHistory
         );
     }
 
@@ -1178,6 +1202,19 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
         } catch (SQLException ex) {
             System.err.println("[Eternal-SqlStorage] linkReportToReplay failed: " + ex.getMessage());
             return false;
+        }
+    }
+
+    @Override
+    public void linkReportChatHistory(long reportId, @Nullable String chatHistoryJson) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "UPDATE eternal_reports SET chat_history = ? WHERE id = ?")) {
+            ps.setString(1, chatHistoryJson);
+            ps.setLong(2, reportId);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("linkReportChatHistory failed", ex);
         }
     }
 
@@ -3209,6 +3246,389 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                 rs.getDouble("z"),
                 (float) rs.getDouble("yaw"),
                 (float) rs.getDouble("pitch")
+        );
+    }
+
+    /* ====================================================================
+     * ChatLogStorage — chat / command / msg logs + social-spy registry.
+     * MySQL gets FULLTEXT search, SQLite falls back to LIKE. created_at is
+     * epoch millis (Instant.toEpochMilli / Instant.ofEpochMilli). Batched
+     * inserts run in a local transaction for throughput.
+     * ==================================================================== */
+
+    private void createChatLogTables(@NotNull Connection c) throws SQLException {
+        String idStr = isSqlite() ? "TEXT" : "VARCHAR(36)";
+        String shortStr = isSqlite() ? "TEXT" : "VARCHAR(64)";
+        String t = longTextType();
+        try (Statement st = c.createStatement()) {
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_chat_log (
+                      id %1$s,
+                      kind %2$s NOT NULL,
+                      server %2$s NOT NULL,
+                      sender_uuid %3$s NOT NULL,
+                      sender_name %2$s NOT NULL,
+                      target_uuid %3$s,
+                      target_name %2$s,
+                      content %4$s NOT NULL,
+                      created_at BIGINT NOT NULL
+                    )""").formatted(pk(), shortStr, idStr, t));
+            st.execute("CREATE INDEX IF NOT EXISTS idx_chatlog_server_time ON eternal_chat_log(server, created_at)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_chatlog_sender_time ON eternal_chat_log(sender_uuid, created_at)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_chatlog_time ON eternal_chat_log(created_at)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_sensitive_log (
+                      id %1$s,
+                      kind %2$s NOT NULL,
+                      server %2$s NOT NULL,
+                      sender_uuid %3$s NOT NULL,
+                      sender_name %2$s NOT NULL,
+                      target_uuid %3$s,
+                      target_name %2$s,
+                      content %4$s NOT NULL,
+                      created_at BIGINT NOT NULL
+                    )""").formatted(pk(), shortStr, idStr, t));
+            st.execute("CREATE INDEX IF NOT EXISTS idx_senslog_server_time ON eternal_sensitive_log(server, created_at)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_senslog_time ON eternal_sensitive_log(created_at)");
+
+            st.execute(("""
+                    CREATE TABLE IF NOT EXISTS eternal_socialspy (
+                      uuid %1$s PRIMARY KEY NOT NULL
+                    )""").formatted(idStr));
+        }
+
+        // FULLTEXT search is MySQL-only; add it idempotently (separate
+        // try/catch via runIdempotent) so re-runs and SQLite are no-ops.
+        if (!isSqlite()) {
+            runIdempotent(c, "ALTER TABLE eternal_chat_log ADD FULLTEXT idx_chatlog_fts (sender_name, target_name, content)");
+            runIdempotent(c, "ALTER TABLE eternal_sensitive_log ADD FULLTEXT idx_senslog_fts (sender_name, content)");
+        }
+    }
+
+    @Override
+    public void appendChatLogs(@NotNull List<ChatLogEntry> batch) {
+        batchInsertLogs("eternal_chat_log", batch);
+    }
+
+    @Override
+    public void appendSensitiveLogs(@NotNull List<ChatLogEntry> batch) {
+        batchInsertLogs("eternal_sensitive_log", batch);
+    }
+
+    /** Shared batched insert for both log tables, in a local transaction. */
+    private void batchInsertLogs(@NotNull String table, @NotNull List<ChatLogEntry> batch) {
+        if (batch.isEmpty()) return;
+        String sql = "INSERT INTO " + table
+                + " (kind, server, sender_uuid, sender_name, target_uuid, target_name, content, created_at)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        Connection c = null;
+        boolean prevAuto = true;
+        try {
+            c = conn();
+            prevAuto = c.getAutoCommit();
+            c.setAutoCommit(false);
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                for (ChatLogEntry e : batch) {
+                    ps.setString(1, e.kind().name());
+                    ps.setString(2, e.server());
+                    ps.setString(3, e.senderUuid());
+                    ps.setString(4, e.senderName());
+                    ps.setString(5, e.targetUuid());
+                    ps.setString(6, e.targetName());
+                    ps.setString(7, e.content());
+                    ps.setLong(8, e.createdAt().toEpochMilli());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                c.commit();
+            } catch (SQLException ex) {
+                c.rollback();
+                throw ex;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("appendChatLogs(" + table + ") failed", ex);
+        } finally {
+            if (c != null) {
+                try { c.setAutoCommit(prevAuto); } catch (SQLException ignored) { /* closing anyway */ }
+                try { c.close(); } catch (SQLException ignored) { /* pool return */ }
+            }
+        }
+    }
+
+    @Override
+    public @NotNull List<ChatLogEntry> findChatLogs(@Nullable String server, @Nullable String query,
+                                                    @Nullable Set<ChatLogKind> kinds, long fromMs, long toMs,
+                                                    int limit, int offset) {
+        return queryLogs("eternal_chat_log", server, query, kinds, fromMs, toMs, limit, offset);
+    }
+
+    @Override
+    public long countChatLogs(@Nullable String server, @Nullable String query,
+                              @Nullable Set<ChatLogKind> kinds, long fromMs, long toMs) {
+        return countLogs("eternal_chat_log", server, query, kinds, fromMs, toMs);
+    }
+
+    @Override
+    public @NotNull List<ChatLogEntry> findSensitiveLogs(@Nullable String server, @Nullable String query,
+                                                         long fromMs, long toMs, int limit, int offset) {
+        return queryLogs("eternal_sensitive_log", server, query, null, fromMs, toMs, limit, offset);
+    }
+
+    @Override
+    public long countSensitiveLogs(@Nullable String server, @Nullable String query, long fromMs, long toMs) {
+        return countLogs("eternal_sensitive_log", server, query, null, fromMs, toMs);
+    }
+
+    /** Builds the shared dynamic WHERE clause and binds its params. The
+     *  sensitive table has no target_name; MATCH/LIKE adapt accordingly. */
+    private void appendLogFilters(@NotNull StringBuilder sb, @NotNull List<Object> params, boolean sensitive,
+                                  @Nullable String server, @Nullable String query,
+                                  @Nullable Set<ChatLogKind> kinds, long fromMs, long toMs) {
+        List<String> clauses = new ArrayList<>();
+        if (server != null && !server.isBlank()) {
+            clauses.add("server = ?");
+            params.add(server);
+        }
+        if (kinds != null && !kinds.isEmpty()) {
+            StringBuilder in = new StringBuilder("kind IN (");
+            int i = 0;
+            for (ChatLogKind k : kinds) {
+                in.append(i++ == 0 ? "?" : ",?");
+                params.add(k.name());
+            }
+            in.append(")");
+            clauses.add(in.toString());
+        }
+        if (fromMs > 0) {
+            clauses.add("created_at >= ?");
+            params.add(fromMs);
+        }
+        if (toMs > 0) {
+            clauses.add("created_at <= ?");
+            params.add(toMs);
+        }
+        if (query != null && !query.isBlank()) {
+            if (isSqlite()) {
+                String like = "%" + query.toLowerCase() + "%";
+                if (sensitive) {
+                    clauses.add("(LOWER(sender_name) LIKE ? OR LOWER(content) LIKE ?)");
+                    params.add(like);
+                    params.add(like);
+                } else {
+                    clauses.add("(LOWER(sender_name) LIKE ? OR LOWER(target_name) LIKE ? OR LOWER(content) LIKE ?)");
+                    params.add(like);
+                    params.add(like);
+                    params.add(like);
+                }
+            } else {
+                // MySQL FULLTEXT, boolean mode with a trailing '*' for prefix matching.
+                String against = query.trim() + "*";
+                if (sensitive) {
+                    clauses.add("MATCH(sender_name, content) AGAINST (? IN BOOLEAN MODE)");
+                } else {
+                    clauses.add("MATCH(sender_name, target_name, content) AGAINST (? IN BOOLEAN MODE)");
+                }
+                params.add(against);
+            }
+        }
+        if (!clauses.isEmpty()) {
+            sb.append(" WHERE ").append(String.join(" AND ", clauses));
+        }
+    }
+
+    private @NotNull List<ChatLogEntry> queryLogs(@NotNull String table, @Nullable String server,
+                                                  @Nullable String query, @Nullable Set<ChatLogKind> kinds,
+                                                  long fromMs, long toMs, int limit, int offset) {
+        boolean sensitive = "eternal_sensitive_log".equals(table);
+        int safeLimit = Math.max(1, Math.min(500, limit));
+        int safeOffset = Math.max(0, offset);
+        StringBuilder sb = new StringBuilder("SELECT * FROM ").append(table);
+        List<Object> params = new ArrayList<>();
+        appendLogFilters(sb, params, sensitive, server, query, kinds, fromMs, toMs);
+        sb.append(" ORDER BY created_at DESC LIMIT ").append(safeLimit).append(" OFFSET ").append(safeOffset);
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sb.toString())) {
+            bindParams(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ChatLogEntry> out = new ArrayList<>();
+                while (rs.next()) out.add(readChatLog(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findChatLogs(" + table + ") failed", ex);
+        }
+    }
+
+    private long countLogs(@NotNull String table, @Nullable String server, @Nullable String query,
+                           @Nullable Set<ChatLogKind> kinds, long fromMs, long toMs) {
+        boolean sensitive = "eternal_sensitive_log".equals(table);
+        StringBuilder sb = new StringBuilder("SELECT COUNT(*) FROM ").append(table);
+        List<Object> params = new ArrayList<>();
+        appendLogFilters(sb, params, sensitive, server, query, kinds, fromMs, toMs);
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sb.toString())) {
+            bindParams(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("countChatLogs(" + table + ") failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<ChatLogEntry> findChatAround(@Nullable String server, long anchorMs, int before, int after) {
+        int safeBefore = Math.max(0, Math.min(500, before));
+        int safeAfter = Math.max(0, Math.min(500, after));
+        boolean hasServer = server != null && !server.isBlank();
+        List<ChatLogEntry> result = new ArrayList<>();
+        try (Connection c = conn()) {
+            // `before` rows: created_at < anchor, newest first, then re-sorted ASC below.
+            if (safeBefore > 0) {
+                String sql = "SELECT * FROM eternal_chat_log WHERE created_at < ?"
+                        + (hasServer ? " AND server = ?" : "")
+                        + " ORDER BY created_at DESC LIMIT " + safeBefore;
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setLong(1, anchorMs);
+                    if (hasServer) ps.setString(2, server);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        List<ChatLogEntry> beforeRows = new ArrayList<>();
+                        while (rs.next()) beforeRows.add(readChatLog(rs));
+                        // came back DESC; flip to chronological ASC.
+                        for (int i = beforeRows.size() - 1; i >= 0; i--) result.add(beforeRows.get(i));
+                    }
+                }
+            }
+            // `after` rows: created_at >= anchor, ASC.
+            if (safeAfter > 0) {
+                String sql = "SELECT * FROM eternal_chat_log WHERE created_at >= ?"
+                        + (hasServer ? " AND server = ?" : "")
+                        + " ORDER BY created_at ASC LIMIT " + safeAfter;
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setLong(1, anchorMs);
+                    if (hasServer) ps.setString(2, server);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) result.add(readChatLog(rs));
+                    }
+                }
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findChatAround failed", ex);
+        }
+        return result;
+    }
+
+    @Override
+    public @NotNull List<ChatLogEntry> playerMessages(@NotNull String uuid, long fromMs, long toMs, int limit) {
+        int safeLimit = Math.max(1, Math.min(5000, limit));
+        StringBuilder sb = new StringBuilder(
+                "SELECT * FROM eternal_chat_log WHERE kind IN ('CHAT','MSG') AND sender_uuid = ?");
+        List<Object> params = new ArrayList<>();
+        params.add(uuid);
+        if (fromMs > 0) {
+            sb.append(" AND created_at >= ?");
+            params.add(fromMs);
+        }
+        if (toMs > 0) {
+            sb.append(" AND created_at <= ?");
+            params.add(toMs);
+        }
+        sb.append(" ORDER BY created_at ASC LIMIT ").append(safeLimit);
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sb.toString())) {
+            bindParams(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ChatLogEntry> out = new ArrayList<>();
+                while (rs.next()) out.add(readChatLog(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("playerMessages failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<String> chatLogServers() {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT DISTINCT server FROM eternal_chat_log ORDER BY server ASC");
+             ResultSet rs = ps.executeQuery()) {
+            List<String> out = new ArrayList<>();
+            while (rs.next()) out.add(rs.getString(1));
+            return out;
+        } catch (SQLException ex) {
+            throw new StorageException("chatLogServers failed", ex);
+        }
+    }
+
+    @Override
+    public void setSocialSpy(@NotNull String uuid, boolean enabled) {
+        if (enabled) {
+            String sql = isSqlite()
+                    ? "INSERT OR IGNORE INTO eternal_socialspy (uuid) VALUES (?)"
+                    : "INSERT IGNORE INTO eternal_socialspy (uuid) VALUES (?)";
+            try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setString(1, uuid);
+                ps.executeUpdate();
+            } catch (SQLException ex) {
+                throw new StorageException("setSocialSpy(enable) failed", ex);
+            }
+        } else {
+            try (Connection c = conn();
+                 PreparedStatement ps = c.prepareStatement("DELETE FROM eternal_socialspy WHERE uuid = ?")) {
+                ps.setString(1, uuid);
+                ps.executeUpdate();
+            } catch (SQLException ex) {
+                throw new StorageException("setSocialSpy(disable) failed", ex);
+            }
+        }
+    }
+
+    @Override
+    public boolean isSocialSpy(@NotNull String uuid) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT 1 FROM eternal_socialspy WHERE uuid = ?")) {
+            ps.setString(1, uuid);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("isSocialSpy failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Set<String> socialSpyUuids() {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement("SELECT uuid FROM eternal_socialspy");
+             ResultSet rs = ps.executeQuery()) {
+            Set<String> out = new LinkedHashSet<>();
+            while (rs.next()) out.add(rs.getString(1));
+            return out;
+        } catch (SQLException ex) {
+            throw new StorageException("socialSpyUuids failed", ex);
+        }
+    }
+
+    /** Binds an ordered param list: String, Long/Integer -> setLong, else setString. */
+    private static void bindParams(@NotNull PreparedStatement ps, @NotNull List<Object> params) throws SQLException {
+        int i = 1;
+        for (Object p : params) {
+            if (p instanceof Long l) ps.setLong(i, l);
+            else if (p instanceof Integer n) ps.setLong(i, n);
+            else ps.setString(i, p == null ? null : p.toString());
+            i++;
+        }
+    }
+
+    private static ChatLogEntry readChatLog(@NotNull ResultSet rs) throws SQLException {
+        return new ChatLogEntry(
+                rs.getLong("id"),
+                ChatLogKind.valueOf(rs.getString("kind")),
+                rs.getString("server"),
+                rs.getString("sender_uuid"),
+                rs.getString("sender_name"),
+                rs.getString("target_uuid"),
+                rs.getString("target_name"),
+                rs.getString("content"),
+                Instant.ofEpochMilli(rs.getLong("created_at"))
         );
     }
 }

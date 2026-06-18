@@ -35,6 +35,9 @@ import { ApiService } from '../../core/api.service';
             <a routerLink="/players" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>person_search</mat-icon><span>Spieler</span>
             </a>
+            <a routerLink="/chat-logs" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+              <mat-icon>forum</mat-icon><span>Chat-Logs</span>
+            </a>
             <a routerLink="/appeals" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
               <mat-icon>contact_support</mat-icon><span>Entbannungsanträge</span>
             </a>

@@ -6,8 +6,9 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatButtonModule } from '@angular/material/button';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
-import { PlayerLookup, Punishment, Report, UnbanAppeal } from '../../core/models';
+import { ChatSession, ChatSessionDay, PlayerLookup, Punishment, Report, UnbanAppeal } from '../../core/models';
 import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
+import { ChatTranscriptComponent } from '../../shared/chat-transcript/chat-transcript.component';
 
 /** EU date format that matches the in-game pattern (yyyy-MM-dd HH:mm). */
 const EU_DATE_FORMAT = 'yyyy-MM-dd HH:mm';
@@ -39,7 +40,7 @@ type HistoryRow = {
 @Component({
   selector: 'et-player-detail',
   standalone: true,
-  imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, RouterLink, LegacyTextPipe],
+  imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, RouterLink, LegacyTextPipe, ChatTranscriptComponent],
   template: `
     <button mat-stroked-button routerLink="/players" class="mb-4">
       <mat-icon>arrow_back</mat-icon> Zur Suche
@@ -108,6 +109,48 @@ type HistoryRow = {
             <div *ngIf="a.decisionMessage"
                  class="mt-2 p-2 bg-cyan-900/30 border border-cyan-700/40 rounded text-cyan-200 text-sm">
               <strong>Nachricht:</strong> {{ a.decisionMessage }}
+            </div>
+          </div>
+        </div>
+      </mat-card>
+
+      <!-- Chat-Verlauf: pro Tag gruppierte Sessions (Lücke > 5 min = neue
+           Session). Jede Session ist aufklappbar; Zeitspanne + Anzahl im
+           Kopf, et-chat-transcript im Body. -->
+      <mat-card class="p-6 mb-4">
+        <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+          <mat-icon class="text-eternal-300 !text-xl">forum</mat-icon> Chat-Verlauf
+          <span class="text-sm text-ink-400 font-normal">(letzte 7 Tage)</span>
+        </h2>
+
+        <div *ngIf="chatLoading()" class="flex justify-center py-6"><mat-spinner diameter="28" /></div>
+        <div *ngIf="!chatLoading() && chatSessions().length === 0" class="text-ink-300 text-sm">
+          Keine Chat-Aktivität in den letzten 7 Tagen.
+        </div>
+
+        <div *ngIf="!chatLoading()" class="space-y-5">
+          <div *ngFor="let group of chatSessions()">
+            <div class="text-xs uppercase tracking-wide text-eternal-300 mb-2">{{ group.day }}</div>
+            <div class="space-y-2">
+              <div *ngFor="let s of group.sessions"
+                   class="rounded-lg border border-ink-700/40 bg-ink-800/30 overflow-hidden">
+                <button (click)="toggleSession(s)"
+                        class="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-ink-700/40 transition">
+                  <mat-icon class="text-ink-400 !text-lg !w-5 !h-5">
+                    {{ isOpen(s) ? 'expand_less' : 'expand_more' }}
+                  </mat-icon>
+                  <span class="font-mono text-sm">
+                    {{ s.startedAt | date:'HH:mm' }}–{{ s.endedAt | date:'HH:mm' }}
+                  </span>
+                  <span class="flex-1"></span>
+                  <span class="text-xs px-2 py-0.5 rounded bg-ink-700 text-ink-300">
+                    {{ s.messageCount }} {{ s.messageCount === 1 ? 'Nachricht' : 'Nachrichten' }}
+                  </span>
+                </button>
+                <div *ngIf="isOpen(s)" class="px-3 pb-3">
+                  <et-chat-transcript [messages]="s.messages" [showServer]="true" />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -187,6 +230,12 @@ export class PlayerDetailComponent implements OnChanges {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
+  /* --- chat-verlauf --- */
+  readonly chatSessions = signal<ChatSessionDay[]>([]);
+  readonly chatLoading = signal(true);
+  /** Sessions expanded by the user (keyed by startedAt — unique per player). */
+  private readonly openSessions = new Set<number>();
+
   /** EU date pattern, shared across the template to avoid drift. */
   readonly fmt = EU_DATE_FORMAT;
 
@@ -197,6 +246,22 @@ export class PlayerDetailComponent implements OnChanges {
       next: d => { this.data.set(d); this.loading.set(false); },
       error: e => { this.error.set(e.error?.error ?? e.message); this.loading.set(false); }
     });
+
+    this.chatLoading.set(true);
+    this.openSessions.clear();
+    this.api.playerChatSessions(this.name).subscribe({
+      next: days => { this.chatSessions.set(days ?? []); this.chatLoading.set(false); },
+      error: () => { this.chatSessions.set([]); this.chatLoading.set(false); }
+    });
+  }
+
+  toggleSession(s: ChatSession) {
+    if (this.openSessions.has(s.startedAt)) this.openSessions.delete(s.startedAt);
+    else this.openSessions.add(s.startedAt);
+  }
+
+  isOpen(s: ChatSession): boolean {
+    return this.openSessions.has(s.startedAt);
   }
 
   head(uuid: string) {

@@ -27,6 +27,23 @@ public final class Routes {
     private static final SecureRandom RNG = new SecureRandom();
     private static final char[] CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
 
+    /* Report chat-context window — mirrors the chatlog config
+     * report-context-before / report-context-after / report-context-window-
+     * seconds (120s). BEFORE/AFTER are the row counts captured around the
+     * report anchor; WINDOW_MS is how long we wait before freezing the
+     * +after window (after which the snapshot is persisted onto the report). */
+    private static final int BEFORE = 10;
+    private static final int AFTER = 10;
+    private static final long WINDOW_MS = 120_000L;
+
+    /** Cluster gap — a new chat session starts when consecutive messages are
+     *  more than 5 minutes apart. */
+    private static final long SESSION_GAP_MS = 300_000L;
+
+    /** Reflects the storage clamp [1,500]; we default the page size to 100
+     *  like {@link #listReports} and cap it so a huge limit can't be abused. */
+    private static final int MAX_LIMIT = 500;
+
     private final EternalStorage storage;
     private final Auth auth;
     private final ApiConfig config;
@@ -78,7 +95,17 @@ public final class Routes {
         app.post("/reports/{id}/teleport", this::teleportToReport);
         app.post("/reports/{id}/ban", this::banFromReport);
         app.post("/reports/{id}/mute", this::muteFromReport);
+        app.get("/reports/{id}/chat", this::reportChat);
         app.get("/stats", this::stats);
+
+        // --- chat-logs + social-spy ----------------------------------------
+        // Read access gated per-permission so admins can scope who sees the
+        // network-wide chat history; sensitive (login/register/...) lives
+        // behind its own stricter gate. Sessions reuse the staff gate.
+        app.get("/chat-logs", this::listChatLogs);
+        app.get("/chat-logs/servers", this::chatLogServers);
+        app.get("/chat-logs/sensitive", this::listSensitiveChatLogs);
+        app.get("/players/{name}/chat-sessions", this::playerChatSessions);
         app.get("/admin/active-sessions", this::adminActiveSessions);
 
         // --- Permission engine — admin-only, gated via eternal.web.admin.
@@ -514,6 +541,239 @@ public final class Routes {
         ));
         long actionId = storage.queueAction("TELEPORT", p.uuid(), payload);
         ctx.json(Map.of("ok", true, "actionId", actionId));
+    }
+
+    /* --- chat-logs + social-spy ---------------------------------------- */
+
+    /**
+     * GET /chat-logs — paginated network-wide chat/command/msg history.
+     * Params: server, q, kinds (csv of CHAT,COMMAND,MSG), from, to, limit
+     * (default 100), offset (default 0). Response shape {total, items}
+     * mirrors {@link #listReports}. The storage layer binds the search term,
+     * so {@code q} is safe to pass straight through.
+     */
+    private void listChatLogs(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.chatlogs");
+        if (!(storage instanceof de.eternal.core.chatlog.ChatLogStorage cl)) {
+            ctx.json(Map.of("total", 0L, "items", List.of()));
+            return;
+        }
+        String server = ctx.queryParam("server");
+        String q = ctx.queryParam("q");
+        java.util.Set<de.eternal.core.model.ChatLogKind> kinds = parseKinds(ctx.queryParam("kinds"));
+        long from = parseLongOr(ctx.queryParam("from"), 0L);
+        long to = parseLongOr(ctx.queryParam("to"), 0L);
+        int limit = clampLimit(parseIntOr(ctx.queryParam("limit"), 100));
+        int offset = Math.max(0, parseIntOr(ctx.queryParam("offset"), 0));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("total", cl.countChatLogs(server, q, kinds, from, to));
+        out.put("items", cl.findChatLogs(server, q, kinds, from, to, limit, offset));
+        ctx.json(out);
+    }
+
+    /** GET /chat-logs/servers — distinct server names seen in the chat log,
+     *  for the dashboard's server filter dropdown. */
+    private void chatLogServers(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.chatlogs");
+        if (!(storage instanceof de.eternal.core.chatlog.ChatLogStorage cl)) {
+            ctx.json(List.of());
+            return;
+        }
+        ctx.json(cl.chatLogServers());
+    }
+
+    /**
+     * GET /chat-logs/sensitive — same shape as {@link #listChatLogs} but
+     * reads the SEPARATE sensitive-command table behind a stricter gate.
+     * Kinds aren't a filter here (everything is stored as COMMAND).
+     */
+    private void listSensitiveChatLogs(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.chatlogs.sensitive");
+        if (!(storage instanceof de.eternal.core.chatlog.ChatLogStorage cl)) {
+            ctx.json(Map.of("total", 0L, "items", List.of()));
+            return;
+        }
+        String server = ctx.queryParam("server");
+        String q = ctx.queryParam("q");
+        long from = parseLongOr(ctx.queryParam("from"), 0L);
+        long to = parseLongOr(ctx.queryParam("to"), 0L);
+        int limit = clampLimit(parseIntOr(ctx.queryParam("limit"), 100));
+        int offset = Math.max(0, parseIntOr(ctx.queryParam("offset"), 0));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("total", cl.countSensitiveLogs(server, q, from, to));
+        out.put("items", cl.findSensitiveLogs(server, q, from, to, limit, offset));
+        ctx.json(out);
+    }
+
+    /**
+     * GET /players/{name}/chat-sessions?days=7 — the player's chat/msg
+     * history clustered into sessions (a new session starts after a 5-min
+     * gap) and grouped per UTC day. Days are returned newest-first; within a
+     * day sessions are newest-first; messages inside a session stay
+     * chronological (ASC). Shape:
+     * <pre>[{day, sessions:[{startedAt, endedAt, messageCount, messages:[ChatLogEntry...]}]}]</pre>
+     */
+    private void playerChatSessions(@NotNull Context ctx) {
+        auth.requireStaff(ctx);
+        String name = ctx.pathParam("name");
+        var profile = storage.findProfileByName(name)
+                .orElseThrow(() -> new NotFoundResponse("player not seen"));
+        if (!(storage instanceof de.eternal.core.chatlog.ChatLogStorage cl)) {
+            ctx.json(List.of());
+            return;
+        }
+        int days = Math.max(1, parseIntOr(ctx.queryParam("days"), 7));
+        long now = System.currentTimeMillis();
+        long from = now - (long) days * 86_400_000L;
+        var msgs = cl.playerMessages(profile.uuid().toString(), from, now, 5000); // ASC
+
+        // Cluster into sessions on the 5-min gap, building each session's
+        // start/end/count + chronological message list as we go.
+        List<ChatSession> sessions = new java.util.ArrayList<>();
+        List<de.eternal.core.model.ChatLogEntry> current = new java.util.ArrayList<>();
+        long prev = -1L;
+        for (var m : msgs) {
+            long t = m.createdAt().toEpochMilli();
+            if (!current.isEmpty() && (t - prev) > SESSION_GAP_MS) {
+                sessions.add(toSession(current));
+                current = new java.util.ArrayList<>();
+            }
+            current.add(m);
+            prev = t;
+        }
+        if (!current.isEmpty()) sessions.add(toSession(current));
+
+        // Group sessions by the UTC day of their start. Sort within a day
+        // newest-first; emit days newest-first.
+        java.time.format.DateTimeFormatter dayFmt = java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
+        Map<String, List<ChatSession>> byDay = new java.util.HashMap<>();
+        for (ChatSession s : sessions) {
+            String day = dayFmt.format(java.time.Instant.ofEpochMilli(s.startedAt)
+                    .atZone(java.time.ZoneOffset.UTC));
+            byDay.computeIfAbsent(day, k -> new java.util.ArrayList<>()).add(s);
+        }
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        byDay.keySet().stream().sorted(java.util.Comparator.reverseOrder()).forEach(day -> {
+            List<ChatSession> daySessions = byDay.get(day);
+            daySessions.sort(java.util.Comparator.comparingLong((ChatSession s) -> s.startedAt).reversed());
+            List<Map<String, Object>> sessionRows = new java.util.ArrayList<>(daySessions.size());
+            for (ChatSession s : daySessions) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("startedAt", s.startedAt);
+                row.put("endedAt", s.endedAt);
+                row.put("messageCount", s.messageCount);
+                row.put("messages", s.messages);
+                sessionRows.add(row);
+            }
+            Map<String, Object> dayRow = new LinkedHashMap<>();
+            dayRow.put("day", day);
+            dayRow.put("sessions", sessionRows);
+            out.add(dayRow);
+        });
+        ctx.json(out);
+    }
+
+    /** Internal holder while clustering — serialized via the map shapes in
+     *  {@link #playerChatSessions}, never directly. */
+    private static final class ChatSession {
+        final long startedAt;
+        final long endedAt;
+        final int messageCount;
+        final List<de.eternal.core.model.ChatLogEntry> messages;
+        ChatSession(long startedAt, long endedAt, int messageCount,
+                    List<de.eternal.core.model.ChatLogEntry> messages) {
+            this.startedAt = startedAt;
+            this.endedAt = endedAt;
+            this.messageCount = messageCount;
+            this.messages = messages;
+        }
+    }
+
+    private @NotNull ChatSession toSession(@NotNull List<de.eternal.core.model.ChatLogEntry> msgs) {
+        long start = msgs.get(0).createdAt().toEpochMilli();
+        long end = msgs.get(msgs.size() - 1).createdAt().toEpochMilli();
+        return new ChatSession(start, end, msgs.size(), msgs);
+    }
+
+    /**
+     * GET /reports/{id}/chat — the chat context around a report. Once frozen
+     * (the +after window has elapsed) the snapshot is persisted onto the
+     * report and re-reads return it verbatim with {@code finalized:true}.
+     * Until then it's computed live with {@code finalized:false} and NOT
+     * persisted, so late messages can still land in the window.
+     * Shape: {items: ChatLogEntry[], anchorAt: number, finalized: boolean}.
+     */
+    private void reportChat(@NotNull Context ctx) {
+        auth.requireStaff(ctx);
+        long id = parseLong(ctx, "id");
+        ReportEntry report = storage.findReport(id).orElseThrow(NotFoundResponse::new);
+        long anchorMs = report.createdAt().toEpochMilli();
+
+        // Already finalized — parse the frozen JSON snapshot back and return.
+        String frozen = report.chatHistory();
+        if (frozen != null && !frozen.isBlank()) {
+            java.lang.reflect.Type listType =
+                    new com.google.gson.reflect.TypeToken<List<de.eternal.core.model.ChatLogEntry>>() {}.getType();
+            List<de.eternal.core.model.ChatLogEntry> parsed = Json.GSON.fromJson(frozen, listType);
+            if (parsed == null) parsed = List.of();
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("items", parsed);
+            out.put("anchorAt", anchorMs);
+            out.put("finalized", true);
+            ctx.json(out);
+            return;
+        }
+
+        if (!(storage instanceof de.eternal.core.chatlog.ChatLogStorage cl)) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("items", List.of());
+            out.put("anchorAt", anchorMs);
+            out.put("finalized", false);
+            ctx.json(out);
+            return;
+        }
+
+        List<de.eternal.core.model.ChatLogEntry> items =
+                cl.findChatAround(report.serverName(), anchorMs, BEFORE, AFTER);
+        boolean finalized = (System.currentTimeMillis() - anchorMs) >= WINDOW_MS;
+        if (finalized) {
+            // Freeze the snapshot so subsequent reads are stable + cheap.
+            storage.linkReportChatHistory(id, Json.GSON.toJson(items));
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("items", items);
+        out.put("anchorAt", anchorMs);
+        out.put("finalized", finalized);
+        ctx.json(out);
+    }
+
+    /** Parse a csv of kind names into a Set, ignoring blanks/unknowns.
+     *  Null/blank input or no recognized tokens => null (= all kinds). */
+    private @org.jetbrains.annotations.Nullable java.util.Set<de.eternal.core.model.ChatLogKind>
+            parseKinds(@org.jetbrains.annotations.Nullable String csv) {
+        if (csv == null || csv.isBlank()) return null;
+        java.util.Set<de.eternal.core.model.ChatLogKind> out =
+                java.util.EnumSet.noneOf(de.eternal.core.model.ChatLogKind.class);
+        for (String token : csv.split(",")) {
+            String t = token.trim();
+            if (t.isEmpty()) continue;
+            try {
+                out.add(de.eternal.core.model.ChatLogKind.valueOf(t.toUpperCase()));
+            } catch (IllegalArgumentException ignored) { /* skip unknown kind */ }
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    private int clampLimit(int limit) {
+        if (limit < 1) return 1;
+        return Math.min(limit, MAX_LIMIT);
+    }
+
+    private long parseLongOr(@org.jetbrains.annotations.Nullable String s, long fallback) {
+        if (s == null) return fallback;
+        try { return Long.parseLong(s.trim()); } catch (NumberFormatException ex) { return fallback; }
     }
 
     /* --- appeals ------------------------------------------------------- */

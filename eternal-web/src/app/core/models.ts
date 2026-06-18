@@ -39,6 +39,59 @@ export interface Report {
   claimedAt: number | null;
   closedAt: number | null;
   resolution: string | null;
+  /** Frozen JSON snapshot of the report's chat context (ChatLogEntry[]),
+   *  set once the +after window has been collected. Null while still
+   *  pending. The web rarely reads this directly — use api.reportChat(). */
+  chatHistory?: string;
+}
+
+/* --- Chat-Logs + Social-Spy --------------------------------------- */
+
+/** Kind of a logged line. Sensitive commands are NOT a kind — they live
+ *  in a separate store but are stored with kind COMMAND there. */
+export type ChatLogKind = 'CHAT' | 'COMMAND' | 'MSG';
+
+/** Mirrors de.eternal.core.model.ChatLogEntry. createdAt is epoch millis.
+ *  targetUuid/targetName are only set for MSG (private messages). */
+export interface ChatLogEntry {
+  id: number;
+  kind: ChatLogKind;
+  server: string;
+  senderUuid: string;
+  senderName: string;
+  targetUuid?: string | null;
+  targetName?: string | null;
+  content: string;
+  createdAt: number;
+}
+
+/** Paged chat-log search result — same {total, items} shape as ReportPage. */
+export interface ChatLogPage {
+  total: number;
+  items: ChatLogEntry[];
+}
+
+/** A clustered run of a player's messages (gap > 5 min starts a new one). */
+export interface ChatSession {
+  startedAt: number;
+  endedAt: number;
+  messageCount: number;
+  messages: ChatLogEntry[];
+}
+
+/** A player's sessions grouped by UTC day "yyyy-MM-dd". */
+export interface ChatSessionDay {
+  day: string;
+  sessions: ChatSession[];
+}
+
+/** Chat context attached to a report. anchorAt = the reported message's
+ *  createdAt (epoch ms). finalized=false => the +after window is still
+ *  being collected and the result may grow. */
+export interface ReportChat {
+  items: ChatLogEntry[];
+  anchorAt: number;
+  finalized: boolean;
 }
 
 export interface PlayerProfile {

@@ -1,10 +1,11 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { API_CONFIG } from './api.config';
 import {
-  AdminUser, LinkInit, LinkStatus, Me, PermissionRegistry, PlayerLookup, Punishment,
-  Report, ReportPage, ReportStatusFilter, Role, StaffStat, UnbanAppeal
+  AdminUser, ChatLogPage, ChatSessionDay, LinkInit, LinkStatus, Me, PermissionRegistry,
+  PlayerLookup, Punishment, Report, ReportChat, ReportPage, ReportStatusFilter, Role,
+  StaffStat, UnbanAppeal
 } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -192,5 +193,49 @@ export class ApiService {
   changeUserGroup(uuid: string, group: string, op: 'SET' | 'ADD' | 'REMOVE' = 'SET') {
     return this.http.put<{ ok: boolean; queued: boolean; op: string; group: string }>(
       this.url(`/admin/users/${uuid}/group`), { group, op });
+  }
+
+  /* --- chat-logs + social-spy ---------------------------------------- */
+
+  /** Paged chat-log search. server/q blank => no filter; kinds is a CSV of
+   *  CHAT,COMMAND,MSG; from/to are epoch millis. Gated server-side by
+   *  eternal.web.chatlogs. */
+  chatLogs(o: { server?: string; q?: string; kinds?: string; from?: number; to?: number; limit?: number; offset?: number } = {}): Observable<ChatLogPage> {
+    return this.http.get<ChatLogPage>(this.url('/chat-logs'), { params: this.chatParams(o) });
+  }
+  /** Distinct server names present in the chat log — fills the server filter. */
+  chatLogServers(): Observable<string[]> {
+    return this.http.get<string[]>(this.url('/chat-logs/servers'));
+  }
+  /** Separate, more strictly gated store for sensitive commands
+   *  (login/register/…). Gated server-side by eternal.web.chatlogs.sensitive
+   *  — a 403 here just means the caller may not view it. */
+  sensitiveChatLogs(o: { server?: string; q?: string; from?: number; to?: number; limit?: number; offset?: number } = {}): Observable<ChatLogPage> {
+    return this.http.get<ChatLogPage>(this.url('/chat-logs/sensitive'), { params: this.chatParams(o) });
+  }
+  /** Player's recent chat/msg activity, clustered into sessions and grouped
+   *  by day (newest day first). */
+  playerChatSessions(name: string, days = 7): Observable<ChatSessionDay[]> {
+    return this.http.get<ChatSessionDay[]>(
+      this.url(`/players/${encodeURIComponent(name)}/chat-sessions`),
+      { params: new HttpParams().set('days', days) });
+  }
+  /** Chat context around a report's reported message. */
+  reportChat(id: number): Observable<ReportChat> {
+    return this.http.get<ReportChat>(this.url(`/reports/${id}/chat`));
+  }
+
+  /** Builds HttpParams from the optional chat-log filter object, dropping
+   *  blank/undefined entries so the backend's "no filter" semantics kick in. */
+  private chatParams(o: { server?: string; q?: string; kinds?: string; from?: number; to?: number; limit?: number; offset?: number }): HttpParams {
+    let p = new HttpParams();
+    if (o.server && o.server.trim()) p = p.set('server', o.server.trim());
+    if (o.q && o.q.trim()) p = p.set('q', o.q.trim());
+    if (o.kinds && o.kinds.trim()) p = p.set('kinds', o.kinds.trim());
+    if (o.from && o.from > 0) p = p.set('from', o.from);
+    if (o.to && o.to > 0) p = p.set('to', o.to);
+    if (o.limit != null) p = p.set('limit', o.limit);
+    if (o.offset != null) p = p.set('offset', o.offset);
+    return p;
   }
 }
