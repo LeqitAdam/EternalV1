@@ -41,8 +41,21 @@ public final class PermissionRegistry {
             @NotNull String category,
             @NotNull String label,
             @NotNull String description,
-            @NotNull DefaultGrant defaultGrant
-    ) {}
+            @NotNull DefaultGrant defaultGrant,
+            /** Keys this permission is effectively useless without — the UI
+             *  surfaces them as "wirkt nur mit". The behaviour is unchanged;
+             *  this is purely an editor/order-page hint so admins and
+             *  requesters see what else hangs off a key. */
+            @NotNull List<String> requires,
+            /** Companion keys that are recommended together but not strictly
+             *  required ("sinnvoll dazu"). */
+            @NotNull List<String> relatedTo
+    ) {
+        public Entry {
+            requires = requires == null ? List.of() : List.copyOf(requires);
+            relatedTo = relatedTo == null ? List.of() : List.copyOf(relatedTo);
+        }
+    }
 
     private final Map<String, Entry> byKey = new LinkedHashMap<>();
 
@@ -55,28 +68,35 @@ public final class PermissionRegistry {
     private void registerCoreKeys() {
         // --- Punishment actions ---
         register("eternal.ban",   "punishments", "Spieler bannen",
-                "Darf reguläre Banns aussprechen.", DefaultGrant.STAFF_ANY);
+                "Darf reguläre Banns aussprechen.", DefaultGrant.STAFF_ANY,
+                List.of(), List.of("eternal.report.handle"));
         register("eternal.ban.admin", "punishments", "Admin-Banns",
-                "Darf Reasons mit admin=true verwenden und löschen.", DefaultGrant.ADMIN_ONLY);
+                "Darf Reasons mit admin=true verwenden und löschen.", DefaultGrant.ADMIN_ONLY,
+                List.of("eternal.ban"), List.of());
         register("eternal.mute",  "punishments", "Spieler muten",
-                "Darf reguläre Mutes aussprechen.", DefaultGrant.STAFF_ANY);
+                "Darf reguläre Mutes aussprechen.", DefaultGrant.STAFF_ANY,
+                List.of(), List.of("eternal.report.handle"));
         register("eternal.unban", "punishments", "Spieler entbannen",
                 "Darf reguläre Banns aufheben.", DefaultGrant.STAFF_ANY);
         register("eternal.unban.admin", "punishments", "Admin-Banns aufheben",
-                "Darf Admin-Banns aufheben.", DefaultGrant.ADMIN_ONLY);
+                "Darf Admin-Banns aufheben.", DefaultGrant.ADMIN_ONLY,
+                List.of("eternal.unban"), List.of());
         register("eternal.modify.duration", "punishments", "Dauer ändern",
                 "Darf /modify setduration aufrufen.", DefaultGrant.ADMIN_ONLY);
         register("eternal.modify.reason", "punishments", "Grund ändern",
                 "Darf /modify setreason aufrufen.", DefaultGrant.ADMIN_ONLY);
         register("eternal.history.reset", "punishments", "History reset",
                 "Darf /resethistory aufrufen.", DefaultGrant.ADMIN_ONLY);
+        register("eternal.bypass", "punishments", "Tier-Schutz umgehen",
+                "Ignoriert den Tier-Schutz beim Lookup (sonst muss der eigene "
+                        + "Rang höher als der des Ziels sein).", DefaultGrant.ADMIN_ONLY);
 
         // --- Reports ---
         register("eternal.report",  "reports", "Spieler reporten",
                 "Darf /report einen anderen Spieler.", DefaultGrant.EVERYONE);
         register("eternal.report.handle", "reports", "Reports bearbeiten",
                 "Darf Reports im Dashboard claimen / schließen / bannen.",
-                DefaultGrant.STAFF_ANY);
+                DefaultGrant.STAFF_ANY, List.of(), List.of("eternal.web.player.view"));
         register("eternal.report.notify", "reports", "Report-Notifications",
                 "Empfängt Broadcasts bei neuen Reports.", DefaultGrant.STAFF_ANY);
 
@@ -92,13 +112,15 @@ public final class PermissionRegistry {
         register("eternal.web.player.view", "web", "Spieler-Lookup",
                 "Darf Spieler-Profile im Dashboard sehen.", DefaultGrant.STAFF_ANY);
         register("eternal.web.appeals.decide", "web", "Anträge entscheiden",
-                "Darf Entbannungsanträge approve/deny/shorten.", DefaultGrant.ADMIN_ONLY);
+                "Darf Entbannungsanträge approve/deny/shorten.", DefaultGrant.ADMIN_ONLY,
+                List.of("eternal.web.dashboard"), List.of());
         register("eternal.web.admin", "web", "Admin-Panel",
                 "Darf das Admin-Panel + Rollenverwaltung.", DefaultGrant.ADMIN_ONLY);
         register("eternal.web.chatlogs", "web", "Chat-Logs",
                 "Darf die netzwerkweiten Chat-Logs im Dashboard durchsuchen.", DefaultGrant.STAFF_ANY);
         register("eternal.web.chatlogs.sensitive", "web", "Sensible Chat-Logs",
-                "Darf Login/Register/Passwort-Befehle einsehen.", DefaultGrant.ADMIN_ONLY);
+                "Darf Login/Register/Passwort-Befehle einsehen.", DefaultGrant.ADMIN_ONLY,
+                List.of("eternal.web.chatlogs"), List.of());
 
         // --- Generic notify ---
         register("eternal.notify", "notify", "Mod-Broadcasts",
@@ -112,20 +134,46 @@ public final class PermissionRegistry {
                 "Darf sich auf der Bestell-Seite Rechte anfragen.", DefaultGrant.STAFF_ANY);
     }
 
-    /** Add a per-reason ban key — generated when {@code reasons.yml}
-     *  is loaded. Idempotent: re-registering an existing key keeps the
-     *  first registration's metadata so admin UI labels stay stable. */
-    public void registerReasonScoped(int reasonId, @NotNull String reasonLabel) {
-        register("eternal.ban.reason." + reasonId, "punishments",
-                "Reason #" + reasonId + ": " + reasonLabel,
-                "Darf diesen Bann-/Mute-Grund verwenden.",
-                DefaultGrant.STAFF_ANY);
+    /** Add a per-reason key — generated when {@code reasons.yml} is loaded.
+     *  Idempotent: re-registering an existing key keeps the first
+     *  registration's metadata so admin UI labels stay stable.
+     *
+     *  <p>The key gates the <b>web report</b> ban/mute flow: a reason is only
+     *  usable (and only shown in the dashboard dialog) when the principal holds
+     *  this key in addition to the base perm. Default is {@code STAFF_ANY}
+     *  (opt-out) — every ban/mute holder may use every reason until an admin
+     *  flips a specific reason to "Aus" for a role. In-game enforcement keeps
+     *  using {@code PunishmentReason.effectivePermission()} + tier as before.</p>
+     *
+     *  @param type      ban vs mute — decides the base perm shown as a dependency.
+     *  @param adminOnly whether the reason is an admin reason ({@code eternal.ban.admin}).
+     */
+    public void registerReasonScoped(int reasonId, @NotNull String reasonLabel,
+                                     @NotNull de.eternal.core.model.PunishmentType type,
+                                     boolean adminOnly) {
+        String base = type == de.eternal.core.model.PunishmentType.MUTE
+                ? "eternal.mute"
+                : (adminOnly ? "eternal.ban.admin" : "eternal.ban");
+        String kind = type == de.eternal.core.model.PunishmentType.MUTE ? "Mute" : "Bann";
+        register("eternal.ban.reason." + reasonId, "reasons",
+                kind + "-Grund #" + reasonId + ": " + reasonLabel,
+                "Darf diesen " + kind + "-Grund im Web-Report verwenden.",
+                DefaultGrant.STAFF_ANY, List.of(base), List.of());
     }
 
     public void register(@NotNull String key, @NotNull String category,
                           @NotNull String label, @NotNull String description,
                           @NotNull DefaultGrant defaultGrant) {
-        byKey.putIfAbsent(key, new Entry(key, category, label, description, defaultGrant));
+        register(key, category, label, description, defaultGrant, List.of(), List.of());
+    }
+
+    public void register(@NotNull String key, @NotNull String category,
+                          @NotNull String label, @NotNull String description,
+                          @NotNull DefaultGrant defaultGrant,
+                          @NotNull List<String> requires,
+                          @NotNull List<String> relatedTo) {
+        byKey.putIfAbsent(key,
+                new Entry(key, category, label, description, defaultGrant, requires, relatedTo));
     }
 
     public @NotNull List<Entry> entries() {

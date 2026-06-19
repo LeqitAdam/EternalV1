@@ -145,6 +145,12 @@ import { PermissionRegistryEntry, Role } from '../../core/models';
                 <div class="flex-1 min-w-0">
                   <div class="text-sm">{{ entry.label }}</div>
                   <div class="text-xs text-ink-400 font-mono truncate">{{ entry.key }}</div>
+                  <div *ngIf="entry.requires?.length" class="text-[11px] text-amber-300/90 mt-0.5">
+                    ⚠ Wirkt nur mit: {{ labelsFor(entry.requires!) }}
+                  </div>
+                  <div *ngIf="entry.relatedTo?.length" class="text-[11px] text-ink-400 mt-0.5">
+                    Empfohlen dazu: {{ labelsFor(entry.relatedTo!) }}
+                  </div>
                 </div>
                 <span class="text-[10px] text-ink-500 hidden md:inline">
                   Standard: {{ defaultLabel(entry.defaultGrant) }}
@@ -194,6 +200,15 @@ export class PermissionsComponent implements OnInit {
   form = { name: '', displayName: '', mcGroupName: '', sortOrder: 0, color: '&7' };
 
   readonly categoryKeys = computed(() => Object.keys(this.registry()));
+  /** Flat key → label map across all categories, for rendering dependency
+   *  hints (requires / relatedTo) with human labels instead of raw keys. */
+  readonly labelMap = computed(() => {
+    const map: Record<string, string> = {};
+    for (const entries of Object.values(this.registry())) {
+      for (const e of entries) map[e.key] = e.label;
+    }
+    return map;
+  });
   /** When CloudNet is present, roles ARE the CloudNet groups (auto-synced
    *  by the proxy). Metadata is then read-only — the admin only edits
    *  permissions. Manual role create/edit/delete is the no-CloudNet
@@ -291,6 +306,13 @@ export class PermissionsComponent implements OnInit {
     const updated: Role = { ...role, permissions: without };
     this.selected.set(updated);
     this.roles.set(this.roles().map(r => r.name === role.name ? updated : r));
+  }
+
+  /** Join the human labels for a list of permission keys (fallback: the raw
+   *  key when it isn't in the registry, e.g. an in-game-only custom node). */
+  labelsFor(keys: string[]): string {
+    const map = this.labelMap();
+    return keys.map(k => map[k] ?? k).join(', ');
   }
 
   defaultLabel(d: string): string {

@@ -49,6 +49,15 @@ import { PermissionRequest, RequestablePermission } from '../../core/models';
                     <span class="font-mono text-xs text-ink-400">{{ e.key }}</span>
                   </div>
                   <div class="text-sm text-ink-300">{{ e.description }}</div>
+                  <div *ngIf="e.requires?.length" class="text-[11px] mt-1"
+                       [class.text-amber-300]="missingRequires(e).length === 0"
+                       [class.text-red-300]="missingRequires(e).length > 0">
+                    ⚠ Wirkt nur mit: {{ labelsFor(e.requires!) }}
+                    <span *ngIf="missingRequires(e).length > 0"> — fehlt dir noch: {{ labelsFor(missingRequires(e)) }}</span>
+                  </div>
+                  <div *ngIf="e.relatedTo?.length" class="text-[11px] text-ink-400 mt-0.5">
+                    Empfohlen dazu: {{ labelsFor(e.relatedTo!) }}
+                  </div>
                 </div>
                 <span *ngIf="e.held" class="text-xs px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300">Hast du</span>
                 <span *ngIf="!e.held && e.pending" class="text-xs px-2 py-0.5 rounded bg-amber-900/40 text-amber-300">Angefragt</span>
@@ -112,6 +121,30 @@ export class AccessRequestsComponent {
     }
     return Array.from(map.entries()).map(([name, entries]) => ({ name, entries }));
   });
+
+  /** Flat key → label map across the whole catalogue, for rendering dependency
+   *  hints with human labels instead of raw keys. */
+  readonly labelMap = computed(() => {
+    const map: Record<string, string> = {};
+    for (const e of this.catalogue()) map[e.key] = e.label;
+    return map;
+  });
+  /** Keys the requester already holds — used to flag missing dependencies. */
+  readonly heldKeys = computed(() => new Set(this.catalogue().filter(e => e.held).map(e => e.key)));
+
+  /** Join the human labels for a list of permission keys (fallback: raw key). */
+  labelsFor(keys: string[]): string {
+    const map = this.labelMap();
+    return keys.map(k => map[k] ?? k).join(', ');
+  }
+
+  /** Of a permission's `requires`, the ones the requester does NOT yet hold —
+   *  so the order page can nudge them to order those too. */
+  missingRequires(e: RequestablePermission): string[] {
+    if (!e.requires?.length) return [];
+    const held = this.heldKeys();
+    return e.requires.filter(k => !held.has(k));
+  }
 
   constructor() { this.load(); }
 

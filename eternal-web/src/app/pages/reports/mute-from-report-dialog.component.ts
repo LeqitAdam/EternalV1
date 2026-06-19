@@ -1,4 +1,4 @@
-import { Component, Inject } from '@angular/core';
+import { Component, Inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
@@ -6,31 +6,24 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSelectModule } from '@angular/material/select';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { ApiService } from '../../core/api.service';
 
-interface MutePreset {
+/** A mute reason the mod can pick — sourced from reasons.yml via /reasons and
+ *  filtered to the ones THIS mod may actually use (`usable`). The catch-all
+ *  "Sonstiges" entry has id === null and means a free-form custom mute. */
+interface MuteReasonOption {
+  id: number | null;
   label: string;
   durationSeconds: number;   // -1 = permanent
-  message: string;
 }
-
-/** Typical mute durations — chat-violations are usually shorter than
- *  full bans. The mod can still pick "Sonstiges" for any custom
- *  duration the presets don't cover. */
-const MUTE_PRESETS: MutePreset[] = [
-  { label: 'Spam / Caps',            durationSeconds: 10 * 60,       message: '10 Minuten Mute: Spam' },
-  { label: 'Beleidigung im Chat',    durationSeconds: 60 * 60,       message: '1 Stunde Mute: Beleidigung' },
-  { label: 'Werbung / Advertising',  durationSeconds: 60 * 60,       message: '1 Stunde Mute: Werbung' },
-  { label: 'Schwere Beleidigung',    durationSeconds: 24 * 3600,     message: '24 Stunden Mute: schwere Beleidigung' },
-  { label: 'Trolling im Chat',       durationSeconds: 3 * 3600,      message: '3 Stunden Mute: Trolling' },
-  { label: 'Wiederholtes Spammen',   durationSeconds: 3 * 86400,     message: '3 Tage Mute: wiederholtes Spammen' },
-  { label: 'Hassrede / Diskriminierung', durationSeconds: 7 * 86400, message: '7 Tage Mute: Hassrede' },
-  { label: 'Sehr schwere Beleidigung', durationSeconds: -1,          message: 'Permanenter Mute: extreme Beleidigung' }
-];
 
 export interface MuteDialogResult {
   reasonLabel: string;
   durationSeconds: number;
   message: string;
+  /** Numeric reasons.yml id; omitted for the free-form custom path. */
+  reasonId?: number;
 }
 
 @Component({
@@ -38,91 +31,121 @@ export interface MuteDialogResult {
   standalone: true,
   imports: [
     CommonModule, FormsModule, MatDialogModule, MatFormFieldModule,
-    MatInputModule, MatButtonModule, MatSelectModule
+    MatInputModule, MatButtonModule, MatSelectModule, MatProgressSpinnerModule
   ],
   template: `
     <h2 mat-dialog-title>{{ data.targetName }} muten (Report #{{ data.reportId }})</h2>
     <mat-dialog-content class="!min-w-[420px]">
-      <div *ngIf="data.reportReason" class="mb-3 text-sm text-ink-300">
-        Report-Grund: <span class="text-cyan-300">{{ data.reportReason }}</span>
-        <span *ngIf="matchedPreset" class="text-ink-400"> — Preset wurde vorausgewählt</span>
-        <span *ngIf="!matchedPreset" class="text-ink-400"> — kein matching Preset, in &quot;Sonstiges&quot; übernommen</span>
-      </div>
+      <div *ngIf="loading()" class="flex justify-center py-8"><mat-spinner diameter="32" /></div>
 
-      <mat-form-field appearance="outline" class="w-full">
-        <mat-label>Mute-Grund</mat-label>
-        <mat-select [(ngModel)]="selected" (selectionChange)="onPresetChange()">
-          <mat-option *ngFor="let p of presets" [value]="p">{{ p.label }} ({{ formatDuration(p.durationSeconds) }})</mat-option>
-          <mat-option [value]="customPreset">Sonstiges (eigene Werte)</mat-option>
-        </mat-select>
-      </mat-form-field>
+      <ng-container *ngIf="!loading()">
+        <div *ngIf="data.reportReason" class="mb-3 text-sm text-ink-300">
+          Report-Grund: <span class="text-cyan-300">{{ data.reportReason }}</span>
+          <span *ngIf="matchedReason" class="text-ink-400"> — Grund wurde vorausgewählt</span>
+          <span *ngIf="!matchedReason" class="text-ink-400"> — kein passender Grund, in &quot;Sonstiges&quot; übernommen</span>
+        </div>
 
-      <ng-container *ngIf="selected === customPreset">
         <mat-form-field appearance="outline" class="w-full">
-          <mat-label>Label</mat-label>
-          <input matInput [(ngModel)]="customLabel" />
+          <mat-label>Mute-Grund</mat-label>
+          <mat-select [(ngModel)]="selected" (selectionChange)="onReasonChange()">
+            <mat-option *ngFor="let r of options" [value]="r">{{ r.label }} ({{ formatDuration(r.durationSeconds) }})</mat-option>
+            <mat-option [value]="customOption">Sonstiges (eigene Werte)</mat-option>
+          </mat-select>
         </mat-form-field>
+
+        <ng-container *ngIf="selected === customOption">
+          <mat-form-field appearance="outline" class="w-full">
+            <mat-label>Label</mat-label>
+            <input matInput [(ngModel)]="customLabel" />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="w-full">
+            <mat-label>Dauer in Sekunden (-1 = permanent)</mat-label>
+            <input matInput type="number" [(ngModel)]="customSeconds" />
+          </mat-form-field>
+        </ng-container>
+
         <mat-form-field appearance="outline" class="w-full">
-          <mat-label>Dauer in Sekunden (-1 = permanent)</mat-label>
-          <input matInput type="number" [(ngModel)]="customSeconds" />
+          <mat-label>Nachricht an den Spieler</mat-label>
+          <textarea matInput rows="2" [(ngModel)]="message"></textarea>
         </mat-form-field>
       </ng-container>
-
-      <mat-form-field appearance="outline" class="w-full">
-        <mat-label>Nachricht an den Spieler</mat-label>
-        <textarea matInput rows="2" [(ngModel)]="message"></textarea>
-      </mat-form-field>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button (click)="ref.close()">Abbrechen</button>
-      <button mat-flat-button color="accent" [disabled]="!resolved()" (click)="submit()">
+      <button mat-flat-button color="accent" [disabled]="loading() || !resolved()" (click)="submit()">
         Muten
       </button>
     </mat-dialog-actions>
   `
 })
-export class MuteFromReportDialogComponent {
-  readonly presets = MUTE_PRESETS;
-  readonly customPreset: MutePreset = { label: '', durationSeconds: 0, message: '' };
-  readonly matchedPreset: boolean;
+export class MuteFromReportDialogComponent implements OnInit {
+  /** Configured mute reasons the mod may use (filled from /reasons). */
+  options: MuteReasonOption[] = [];
+  /** The catch-all custom entry (id === null). */
+  readonly customOption: MuteReasonOption = { id: null, label: '', durationSeconds: 0 };
+  /** Did a configured reason match the report-reason label? Drives the hint. */
+  matchedReason = false;
 
-  selected: MutePreset;
+  readonly loading = signal(true);
+  selected: MuteReasonOption = this.customOption;
   customLabel = '';
   customSeconds = 3600;
-  message: string;
+  message = '';
 
   constructor(
     public ref: MatDialogRef<MuteFromReportDialogComponent, MuteDialogResult>,
-    @Inject(MAT_DIALOG_DATA) public data: { reportId: number; targetName: string; reportReason?: string }
-  ) {
-    const wanted = (data.reportReason ?? '').trim().toLowerCase();
-    const hit = wanted
-        ? MUTE_PRESETS.find(p => p.label.toLowerCase() === wanted)
-        : null;
+    @Inject(MAT_DIALOG_DATA) public data: { reportId: number; targetName: string; reportReason?: string },
+    private readonly api: ApiService
+  ) {}
+
+  ngOnInit() {
+    this.api.reasons().subscribe({
+      next: res => {
+        // Only mute reasons the current mod is actually permitted to use.
+        this.options = res.reasons
+          .filter(r => r.type === 'MUTE' && r.usable)
+          .map(r => ({ id: r.id, label: r.label, durationSeconds: r.durationSeconds }));
+        this.preselect();
+        this.loading.set(false);
+      },
+      // On error fall back to the custom-only path so a mod is never blocked.
+      error: () => { this.options = []; this.preselect(); this.loading.set(false); }
+    });
+  }
+
+  /** Match the report's reason against a usable configured reason (case-insensitive
+   *  label compare). Falls back to the custom entry pre-filled with the report's
+   *  reason so the mod still gets a sensible default to tweak. */
+  private preselect() {
+    const wanted = (this.data.reportReason ?? '').trim().toLowerCase();
+    const hit = wanted ? this.options.find(r => r.label.toLowerCase() === wanted) : undefined;
     if (hit) {
       this.selected = hit;
-      this.matchedPreset = true;
-      this.message = hit.message;
+      this.matchedReason = true;
+      this.message = hit.label;
     } else if (wanted) {
-      this.selected = this.customPreset;
-      this.customLabel = data.reportReason ?? '';
-      this.message = data.reportReason ?? '';
-      this.matchedPreset = false;
+      this.selected = this.customOption;
+      this.customLabel = this.data.reportReason ?? '';
+      this.message = this.data.reportReason ?? '';
+      this.matchedReason = false;
+    } else if (this.options.length > 0) {
+      this.selected = this.options[0];
+      this.message = this.options[0].label;
+      this.matchedReason = false;
     } else {
-      this.selected = MUTE_PRESETS[0];
-      this.message = MUTE_PRESETS[0].message;
-      this.matchedPreset = false;
+      this.selected = this.customOption;
+      this.matchedReason = false;
     }
   }
 
-  onPresetChange() {
-    if (this.selected !== this.customPreset) {
-      this.message = this.selected.message;
+  onReasonChange() {
+    if (this.selected !== this.customOption) {
+      this.message = this.selected.label;
     }
   }
 
   resolved(): MuteDialogResult | null {
-    if (this.selected === this.customPreset) {
+    if (this.selected === this.customOption) {
       if (!this.customLabel.trim()) return null;
       return {
         reasonLabel: this.customLabel.trim(),
@@ -131,9 +154,10 @@ export class MuteFromReportDialogComponent {
       };
     }
     return {
+      reasonId: this.selected.id ?? undefined,
       reasonLabel: this.selected.label,
       durationSeconds: this.selected.durationSeconds,
-      message: this.message.trim() || this.selected.message
+      message: this.message.trim() || this.selected.label
     };
   }
 

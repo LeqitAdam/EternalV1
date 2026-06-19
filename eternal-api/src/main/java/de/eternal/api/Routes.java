@@ -398,7 +398,7 @@ public final class Routes {
      *  configured appeal-shortening templates so the appeals dialog can
      *  pre-fill the message + duration. */
     private void listReasons(@NotNull Context ctx) {
-        auth.requirePermission(ctx, "eternal.web.dashboard");
+        var p = auth.requirePermission(ctx, "eternal.web.dashboard");
         java.util.List<Map<String, Object>> reasonRows = new java.util.ArrayList<>();
         for (var r : reasons.all()) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -408,6 +408,10 @@ public final class Routes {
             m.put("durationSeconds", r.durationSeconds());
             m.put("adminOnly", r.adminOnly());
             m.put("requiredGroupId", r.requiredGroupId());
+            // Whether THIS caller may use the reason from the web report flow
+            // (base ban/mute perm + the per-reason key + any custom permission).
+            // The dashboard dialog only offers reasons with usable=true.
+            m.put("usable", mayUseReason(p, r));
             reasonRows.add(m);
         }
         java.util.List<Map<String, Object>> templates = new java.util.ArrayList<>();
@@ -1041,6 +1045,46 @@ public final class Routes {
 
     /* --- ban from report ----------------------------------------------- */
 
+    /**
+     * Whether {@code p} may use punishment reason {@code r} from the web report
+     * flow. Layered on top of the base ban/mute perm: the per-reason key
+     * {@code eternal.ban.reason.<id>} (opt-out — {@code STAFF_ANY} default, so
+     * every holder may use every reason until an admin flips it to "Aus") plus
+     * any custom {@code permission:} configured on the reason. The CloudNet tier
+     * bypass ({@code requiredGroupId}) is in-game only — the standalone API has
+     * no tier view, so reasons are governed purely by held permissions here.
+     */
+    private boolean mayUseReason(@NotNull Auth.Principal p,
+                                 @NotNull de.eternal.core.model.PunishmentReason r) {
+        String base = r.type() == PunishmentType.MUTE
+                ? "eternal.mute"
+                : (r.adminOnly() ? "eternal.ban.admin" : "eternal.ban");
+        if (!auth.can(p, base)) return false;
+        if (!auth.can(p, "eternal.ban.reason." + r.id())) return false;
+        String custom = r.requiredPermission();
+        return custom == null || custom.isBlank() || auth.can(p, custom);
+    }
+
+    /** Resolve + permission-check the optional numeric {@code reasonId} from a
+     *  web report ban/mute body. {@code "web"}/non-numeric = the free-form
+     *  custom path (only the base perm gates it). A numeric id must exist, match
+     *  {@code expectedType} and pass {@link #mayUseReason}. */
+    private void enforceReasonId(@NotNull Auth.Principal p, @NotNull String reasonIdStr,
+                                 @NotNull PunishmentType expectedType) {
+        if ("web".equals(reasonIdStr)) return;
+        int rid;
+        try { rid = Integer.parseInt(reasonIdStr); }
+        catch (NumberFormatException ex) { throw new BadRequestResponse("invalid reasonId: " + reasonIdStr); }
+        var reason = reasons.byId(rid);
+        if (reason == null) throw new NotFoundResponse("unknown reason: " + rid);
+        if (reason.type() != expectedType) {
+            throw new BadRequestResponse("reason " + rid + " is not a " + expectedType.name().toLowerCase() + " reason");
+        }
+        if (!mayUseReason(p, reason)) {
+            throw new io.javalin.http.ForbiddenResponse("Missing permission for reason " + rid);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private void banFromReport(@NotNull Context ctx) {
         var p = auth.requirePermission(ctx, "eternal.ban");
@@ -1054,6 +1098,7 @@ public final class Routes {
         long durationSec = body.get("durationSeconds") instanceof Number n ? n.longValue() : -1L;
         String message = String.valueOf(body.getOrDefault("message", label));
         String reasonIdStr = String.valueOf(body.getOrDefault("reasonId", "web"));
+        enforceReasonId(p, reasonIdStr, PunishmentType.BAN);
 
         Instant now = Instant.now();
         Instant expires = durationSec < 0 ? null : now.plusSeconds(durationSec);
@@ -1140,6 +1185,7 @@ public final class Routes {
         long durationSec = body.get("durationSeconds") instanceof Number n ? n.longValue() : -1L;
         String message = String.valueOf(body.getOrDefault("message", label));
         String reasonIdStr = String.valueOf(body.getOrDefault("reasonId", "web"));
+        enforceReasonId(p, reasonIdStr, PunishmentType.MUTE);
 
         Instant now = Instant.now();
         Instant expires = durationSec < 0 ? null : now.plusSeconds(durationSec);
@@ -1220,6 +1266,8 @@ public final class Routes {
                 m.put("category", entry.getKey());
                 m.put("held", auth.can(p, e.key()));
                 m.put("pending", p.uuid() != null && permStorage().hasPendingRequest(p.uuid(), e.key()));
+                m.put("requires", e.requires());
+                m.put("relatedTo", e.relatedTo());
                 cat.add(m);
             }
         }
@@ -1364,7 +1412,9 @@ public final class Routes {
                         "key", e.key(),
                         "label", e.label(),
                         "description", e.description(),
-                        "defaultGrant", e.defaultGrant().name()));
+                        "defaultGrant", e.defaultGrant().name(),
+                        "requires", e.requires(),
+                        "relatedTo", e.relatedTo()));
             }
             grouped.put(entry.getKey(), rows);
         }

@@ -104,7 +104,7 @@ Rechte**, welcher Rang welche `eternal.*`-Rechte hat.
 | `eternal.report.handle` | Reports bearbeiten (Liste, Claim, Close, TP) |
 | `eternal.report.notify` / `eternal.notify` | Broadcast-Empfang |
 | `eternal.replay.rewatch` / `eternal.replay.debug` | Replays ansehen / Recorder-Diagnose |
-| `eternal.ban.reason.<id>` | Reason-spezifischer Ban-Scope (auto-registriert je Reason) |
+| `eternal.ban.reason.<id>` | Reason-Scope (auto-registriert je Reason). Gatet im **Web-Report-Flow**, welche Gründe ein Teamler sieht & verwenden darf (siehe unten) |
 | `eternal.bypass` | Ignoriert den Tier-Schutz beim Lookup (sonst: eigener `sortId` muss höher als der des Ziels sein) |
 
 ### Team / Self-Service
@@ -114,6 +114,35 @@ Rechte**, welcher Rang welche `eternal.*`-Rechte hat.
 
 > Die in-game-Base-Befehle (`eternal.base.*`) und `eternal.tier.*` sind reine
 > Spigot/Bungee-Perms und nicht Teil des Web-Katalogs.
+
+### Reason-Scopes (`eternal.ban.reason.<id>`)
+Für jeden Grund aus `reasons.yml` wird automatisch ein Schlüssel
+`eternal.ban.reason.<id>` registriert (eigene Editor-Kategorie **„reasons"**).
+Er gatet den **Web-Report-Ban/Mute**: Im Dashboard-Dialog erscheinen nur Gründe,
+die der Teamler verwenden darf, und die API (`/reports/{id}/ban|mute`) lehnt einen
+`reasonId` ohne passendes Recht mit `403` ab. Auflösung eines Grundes (Web):
+
+1. Basis-Perm: `eternal.mute` (Mute-Grund) bzw. `eternal.ban` / `eternal.ban.admin`
+   (Ban-Grund, je nach `admin:`-Flag).
+2. Reason-Key `eternal.ban.reason.<id>` — **Opt-out** (Default `STAFF_ANY`): jeder
+   mit Basis-Perm darf jeden Grund, bis ein Admin den Grund pro Rang im Editor auf
+   **Aus** stellt.
+3. Ein in `reasons.yml` gesetztes `permission:` muss zusätzlich gehalten werden.
+
+> **Custom-Bann:** Die „Sonstiges"-Option im Dialog (freies Label + Dauer) sendet
+> keine `reasonId` und braucht nur die Basis-Perm — so bleiben Ad-hoc-Strafen möglich.
+>
+> **In-game** bleibt unverändert: `/ban`/`/mute` prüfen weiter
+> `PunishmentReason.effectivePermission()` + `requiredGroupId` (Tier-Bypass). Die
+> standalone-API kennt keinen Tier, daher zählt dort nur das gehaltene Recht.
+
+### Abhängigkeits-Hinweise im Editor & beim Bestellen
+Jeder Katalog-Eintrag trägt zwei optionale Listen: `requires` („⚠ Wirkt nur mit …" —
+ohne diese Rechte bleibt das Recht wirkungslos, z.B. `eternal.unban.admin` →
+`eternal.unban`) und `relatedTo` („Empfohlen dazu …", z.B. `eternal.ban` →
+`eternal.report.handle`). Sie ändern das Verhalten nicht, sondern zeigen im
+**Rollen-/Rechte-Editor** und auf **„Rechte bestellen"** an, „was noch mit dran
+hängt". Beim Bestellen werden fehlende `requires` zusätzlich rot markiert.
 
 ---
 

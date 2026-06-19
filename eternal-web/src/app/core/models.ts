@@ -185,6 +185,10 @@ export interface PermissionRegistryEntry {
   label: string;
   description: string;
   defaultGrant: 'NEVER' | 'ADMIN_ONLY' | 'STAFF_ANY' | 'EVERYONE';
+  /** Keys this permission is wirkungslos without ("wirkt nur mit"). */
+  requires?: string[];
+  /** Recommended companion keys ("sinnvoll dazu"). */
+  relatedTo?: string[];
 }
 
 /** Registry grouped by category, as returned by the API. */
@@ -249,4 +253,8 @@ export interface RequestablePermission {
   category: string;
   held: boolean;
   pending: boolean;
+  /** Keys this permission is wirkungslos without ("wirkt nur mit"). */
+  requires?: string[];
+  /** Recommended companion keys ("sinnvoll dazu"). */
+  relatedTo?: string[];
 }

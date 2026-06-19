@@ -60,7 +60,8 @@ public final class Main {
         // backs roles + grants.
         de.eternal.core.permission.PermissionRegistry permRegistry =
                 new de.eternal.core.permission.PermissionRegistry();
-        for (var r : reasonsCfg.all()) permRegistry.registerReasonScoped(r.id(), r.label());
+        for (var r : reasonsCfg.all())
+            permRegistry.registerReasonScoped(r.id(), r.label(), r.type(), r.adminOnly());
         de.eternal.core.permission.PermissionService permService =
                 new de.eternal.core.permission.PermissionService(
                         (de.eternal.core.permission.PermissionStorage) storage, storage, permRegistry);

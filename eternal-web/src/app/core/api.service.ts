@@ -101,11 +101,11 @@ export class ApiService {
    *  table can grey out the pardon button for non-admins, plus the
    *  appeal-shortening templates the dialog needs. */
   reasons(): Observable<{
-    reasons: Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number }>;
+    reasons: Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number; usable: boolean }>;
     appealShortenTemplates: Array<{ id: string; label: string; durationSeconds: number; message: string }>;
   }> {
     return this.http.get<{
-      reasons: Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number }>;
+      reasons: Array<{ id: number; label: string; type: string; durationSeconds: number; adminOnly: boolean; requiredGroupId: number; usable: boolean }>;
       appealShortenTemplates: Array<{ id: string; label: string; durationSeconds: number; message: string }>;
     }>(this.url('/reasons'));
   }
@@ -134,11 +134,11 @@ export class ApiService {
   teleportToReport(id: number): Observable<{ ok: boolean; actionId?: number }> {
     return this.http.post<{ ok: boolean; actionId?: number }>(this.url(`/reports/${id}/teleport`), {});
   }
-  banFromReport(id: number, body: { reasonLabel: string; durationSeconds: number; message: string; reasonId?: string }) {
+  banFromReport(id: number, body: { reasonLabel: string; durationSeconds: number; message: string; reasonId?: number | string }) {
     return this.http.post<{ ok: boolean; banId: number; reportId: number }>(
             this.url(`/reports/${id}/ban`), body);
   }
-  muteFromReport(id: number, body: { reasonLabel: string; durationSeconds: number; message: string; reasonId?: string }) {
+  muteFromReport(id: number, body: { reasonLabel: string; durationSeconds: number; message: string; reasonId?: number | string }) {
     return this.http.post<{ ok: boolean; muteId: number; reportId: number }>(
             this.url(`/reports/${id}/mute`), body);
   }
