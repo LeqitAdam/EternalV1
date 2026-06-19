@@ -258,6 +258,7 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             migrateAddReportReplayId(c);
             migrateAddReportChatHistory(c);
             createPermissionTables(c);
+            seedAdminRoleGrant(c);
             createConsentTable(c);
             createCloudGroupsTable(c);
             migrateAddProfileGroups(c);
@@ -403,6 +404,57 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
         }
     }
 
+    @Override
+    public void replaceCloudGroupPerms(@NotNull Map<String, Map<String, Boolean>> byGroup) {
+        try (Connection c = conn()) {
+            // Full replace so the table stays exactly in sync with CloudNet each
+            // cycle (group×node set is small — dozens of groups, a few nodes).
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM eternal_cloud_group_perms");
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO eternal_cloud_group_perms (group_name, permission_key, granted) VALUES (?, ?, ?)")) {
+                for (var ge : byGroup.entrySet()) {
+                    for (var pe : ge.getValue().entrySet()) {
+                        ps.setString(1, ge.getKey());
+                        ps.setString(2, pe.getKey());
+                        ps.setInt(3, pe.getValue() ? 1 : 0);
+                        ps.addBatch();
+                    }
+                }
+                ps.executeBatch();
+            }
+        } catch (SQLException ex) {
+            System.err.println("[Eternal-SqlStorage] replaceCloudGroupPerms failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public @NotNull Map<String, PermissionGrant> cloudGroupPermissions(@NotNull String group) {
+        // Case-insensitive — profile.lastGroupName and the synced group name both
+        // come from CloudNet but casing can drift across versions.
+        String sql = "SELECT group_name, permission_key, granted "
+                + "FROM eternal_cloud_group_perms WHERE LOWER(group_name) = LOWER(?)";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, group);
+            try (ResultSet rs = ps.executeQuery()) {
+                Map<String, PermissionGrant> out = new java.util.LinkedHashMap<>();
+                while (rs.next()) {
+                    out.put(rs.getString("permission_key"), new PermissionGrant(
+                            rs.getString("group_name"),
+                            rs.getString("permission_key"),
+                            rs.getInt("granted") != 0,
+                            Instant.EPOCH,   // synced rows carry no timestamp
+                            "cloudnet",
+                            null));
+                }
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("cloudGroupPermissions failed", ex);
+        }
+    }
+
     private void createCloudGroupsTable(@NotNull Connection c) throws SQLException {
         try (Statement st = c.createStatement()) {
             st.execute("""
@@ -413,6 +465,18 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                       synced_at BIGINT NOT NULL
                     )
                     """);
+            // eternal_cloud_group_perms — mirror of each CloudNet group's own
+            // permission nodes (synced from in-game by the proxy). Read during
+            // resolution, prioritized over the web role grants.
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_cloud_group_perms (
+                      group_name VARCHAR(64) NOT NULL,
+                      permission_key VARCHAR(128) NOT NULL,
+                      granted INTEGER NOT NULL DEFAULT 1,
+                      PRIMARY KEY (group_name, permission_key)
+                    )
+                    """);
+            st.execute("CREATE INDEX IF NOT EXISTS idx_cloud_group_perms_group ON eternal_cloud_group_perms(group_name)");
         }
         // Idempotent add for DBs created before the colour column existed.
         runIdempotent(c, "ALTER TABLE eternal_cloud_groups ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT ''");
@@ -496,7 +560,8 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                     )
                     """);
 
-            // eternal_user_permissions — user-level overrides.
+            // eternal_user_permissions — user-level overrides. expires_at is
+            // set by approved access-requests with a duration (NULL = permanent).
             st.execute("""
                     CREATE TABLE IF NOT EXISTS eternal_user_permissions (
                       user_uuid VARCHAR(36) NOT NULL,
@@ -504,10 +569,79 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                       granted INTEGER NOT NULL DEFAULT 1,
                       updated_at BIGINT NOT NULL,
                       updated_by VARCHAR(64),
+                      expires_at BIGINT,
                       PRIMARY KEY (user_uuid, permission_key)
                     )
                     """);
             st.execute("CREATE INDEX IF NOT EXISTS idx_user_perms_uuid ON eternal_user_permissions(user_uuid)");
+
+            // eternal_permission_requests — self-service access requests. A team
+            // member asks for one key, an admin approves (→ user-override grant,
+            // optionally expiring) or denies.
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS eternal_permission_requests (
+                      id %1$s,
+                      requester_uuid VARCHAR(36) NOT NULL,
+                      requester_name VARCHAR(64) NOT NULL,
+                      permission_key VARCHAR(128) NOT NULL,
+                      justification TEXT,
+                      status VARCHAR(16) NOT NULL,
+                      created_at BIGINT NOT NULL,
+                      decided_by_uuid VARCHAR(36),
+                      decided_by_name VARCHAR(64),
+                      decided_at BIGINT,
+                      decision_note TEXT,
+                      expires_at BIGINT
+                    )
+                    """.formatted(pk()));
+            st.execute("CREATE INDEX IF NOT EXISTS idx_perm_requests_status ON eternal_permission_requests(status, created_at)");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_perm_requests_requester ON eternal_permission_requests(requester_uuid)");
+        }
+        // Idempotent add for DBs created before the expiry column existed.
+        runIdempotent(c, "ALTER TABLE eternal_user_permissions ADD COLUMN expires_at BIGINT");
+    }
+
+    /**
+     * One-time bootstrap so removing the legacy ADMIN tier can't lock the owner
+     * out of the dashboard. Authorization is now purely permission-based, but
+     * the standalone API can't see the in-game {@code *} of the owner group —
+     * it only reads grants from the DB. So if NO role currently carries a
+     * wildcard / admin grant, give {@code *} to the highest-ranked role
+     * (smallest {@code sort_order}, e.g. Owner). The admin can refine grants per
+     * role afterwards in the dashboard editor.
+     *
+     * <p>Idempotent: once any role has {@code * / eternal.* / eternal.web.* /
+     * eternal.web.admin} granted, this does nothing. Runs on the same
+     * connection as schema creation (the SQLite pool has a single connection,
+     * so we must not open another here).</p>
+     */
+    private void seedAdminRoleGrant(@NotNull Connection c) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT COUNT(*) FROM eternal_role_permissions WHERE granted = 1 "
+                    + "AND permission_key IN ('*','eternal.*','eternal.web.*','eternal.web.admin')")) {
+                if (rs.next() && rs.getInt(1) > 0) return; // already bootstrapped
+            }
+            String topRole;
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT name FROM eternal_roles ORDER BY sort_order ASC LIMIT 1")) {
+                if (!rs.next()) return; // no roles yet — CloudNet sync seeds them later; nothing to do
+                topRole = rs.getString(1);
+            }
+            // DELETE+INSERT instead of a dialect-specific upsert so a pre-existing
+            // (denied) `*` row can't trip the composite PK.
+            try (PreparedStatement del = c.prepareStatement(
+                    "DELETE FROM eternal_role_permissions WHERE role_name = ? AND permission_key = '*'")) {
+                del.setString(1, topRole);
+                del.executeUpdate();
+            }
+            try (PreparedStatement ins = c.prepareStatement(
+                    "INSERT INTO eternal_role_permissions (role_name, permission_key, granted, updated_at, updated_by) "
+                    + "VALUES (?, '*', 1, ?, 'bootstrap')")) {
+                ins.setString(1, topRole);
+                ins.setLong(2, System.currentTimeMillis());
+                ins.executeUpdate();
+            }
         }
     }
 
@@ -1358,7 +1492,9 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             ps.setString(1, session.token());
             ps.setString(2, session.userUuid().toString());
             ps.setString(3, session.userName());
-            ps.setString(4, session.role());
+            // Legacy role column kept for backward-compat (non-destructive); no
+            // longer read — authorization is permission-based now.
+            ps.setString(4, "");
             ps.setLong(5, session.createdAt().toEpochMilli());
             ps.setLong(6, session.expiresAt().toEpochMilli());
             ps.executeUpdate();
@@ -1380,7 +1516,6 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                         rs.getString("token"),
                         UUID.fromString(rs.getString("user_uuid")),
                         rs.getString("user_name"),
-                        rs.getString("role"),
                         Instant.ofEpochMilli(rs.getLong("created_at")),
                         Instant.ofEpochMilli(rs.getLong("expires_at"))
                 ));
@@ -1414,7 +1549,6 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                             rs.getString("token"),
                             UUID.fromString(rs.getString("user_uuid")),
                             rs.getString("user_name"),
-                            rs.getString("role"),
                             Instant.ofEpochMilli(rs.getLong("created_at")),
                             Instant.ofEpochMilli(rs.getLong("expires_at"))
                     ));
@@ -1959,7 +2093,7 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
 
     @Override
     public @NotNull Map<String, PermissionGrant> userPermissions(@NotNull UUID userUuid) {
-        String sql = "SELECT user_uuid, permission_key, granted, updated_at, updated_by "
+        String sql = "SELECT user_uuid, permission_key, granted, updated_at, updated_by, expires_at "
                 + "FROM eternal_user_permissions WHERE user_uuid = ?";
         try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, userUuid.toString());
@@ -1979,13 +2113,211 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
     @Override
     public void setUserPermission(@NotNull UUID userUuid, @NotNull String key,
                                    boolean granted, @Nullable String updatedBy) {
-        upsertPermission("eternal_user_permissions", "user_uuid", userUuid.toString(),
-                key, granted, updatedBy);
+        setUserPermission(userUuid, key, granted, updatedBy, null);
+    }
+
+    @Override
+    public void setUserPermission(@NotNull UUID userUuid, @NotNull String key, boolean granted,
+                                   @Nullable String updatedBy, @Nullable Long expiresAtMs) {
+        // Dedicated upsert because user grants carry expires_at (role grants
+        // don't — they go through the shared upsertPermission).
+        String onConflict = isSqlite()
+                ? "ON CONFLICT(user_uuid, permission_key) DO UPDATE SET granted=excluded.granted, "
+                  + "updated_at=excluded.updated_at, updated_by=excluded.updated_by, expires_at=excluded.expires_at"
+                : "ON DUPLICATE KEY UPDATE granted=VALUES(granted), updated_at=VALUES(updated_at), "
+                  + "updated_by=VALUES(updated_by), expires_at=VALUES(expires_at)";
+        String sql = "INSERT INTO eternal_user_permissions "
+                + "(user_uuid, permission_key, granted, updated_at, updated_by, expires_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?) " + onConflict;
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, userUuid.toString());
+            ps.setString(2, key);
+            ps.setInt(3, granted ? 1 : 0);
+            ps.setLong(4, System.currentTimeMillis());
+            if (updatedBy == null) ps.setNull(5, java.sql.Types.VARCHAR); else ps.setString(5, updatedBy);
+            if (expiresAtMs == null) ps.setNull(6, java.sql.Types.BIGINT); else ps.setLong(6, expiresAtMs);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("setUserPermission failed", ex);
+        }
     }
 
     @Override
     public boolean clearUserPermission(@NotNull UUID userUuid, @NotNull String key) {
         return deletePermission("eternal_user_permissions", "user_uuid", userUuid.toString(), key);
+    }
+
+    /* --- access requests ----------------------------------------------- */
+
+    @Override
+    public long createPermissionRequest(@NotNull UUID requesterUuid, @NotNull String requesterName,
+                                        @NotNull String permissionKey, @Nullable String justification) {
+        String sql = "INSERT INTO eternal_permission_requests "
+                + "(requester_uuid, requester_name, permission_key, justification, status, created_at) "
+                + "VALUES (?, ?, ?, ?, 'PENDING', ?)";
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setString(1, requesterUuid.toString());
+            ps.setString(2, requesterName);
+            ps.setString(3, permissionKey);
+            if (justification == null) ps.setNull(4, java.sql.Types.VARCHAR); else ps.setString(4, justification);
+            ps.setLong(5, System.currentTimeMillis());
+            ps.executeUpdate();
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                return keys.next() ? keys.getLong(1) : -1L;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("createPermissionRequest failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull Optional<de.eternal.core.model.PermissionRequest> findPermissionRequest(long id) {
+        String sql = "SELECT * FROM eternal_permission_requests WHERE id = ?";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readPermissionRequest(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findPermissionRequest failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<de.eternal.core.model.PermissionRequest> listPermissionRequests(
+            @Nullable de.eternal.core.model.PermissionRequest.Status status) {
+        String sql = "SELECT * FROM eternal_permission_requests"
+                + (status != null ? " WHERE status = ?" : "")
+                + " ORDER BY created_at DESC";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            if (status != null) ps.setString(1, status.name());
+            try (ResultSet rs = ps.executeQuery()) {
+                List<de.eternal.core.model.PermissionRequest> out = new ArrayList<>();
+                while (rs.next()) out.add(readPermissionRequest(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("listPermissionRequests failed", ex);
+        }
+    }
+
+    @Override
+    public @NotNull List<de.eternal.core.model.PermissionRequest> myPermissionRequests(@NotNull UUID requesterUuid) {
+        String sql = "SELECT * FROM eternal_permission_requests WHERE requester_uuid = ? ORDER BY created_at DESC";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, requesterUuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                List<de.eternal.core.model.PermissionRequest> out = new ArrayList<>();
+                while (rs.next()) out.add(readPermissionRequest(rs));
+                return out;
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("myPermissionRequests failed", ex);
+        }
+    }
+
+    @Override
+    public boolean hasPendingRequest(@NotNull UUID requesterUuid, @NotNull String permissionKey) {
+        String sql = "SELECT 1 FROM eternal_permission_requests "
+                + "WHERE requester_uuid = ? AND permission_key = ? AND status = 'PENDING'";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, requesterUuid.toString());
+            ps.setString(2, permissionKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("hasPendingRequest failed", ex);
+        }
+    }
+
+    @Override
+    public boolean decidePermissionRequest(long id, @NotNull UUID byUuid, @NotNull String byName,
+                                           @NotNull de.eternal.core.model.PermissionRequest.Status status,
+                                           @Nullable String note, @Nullable Long expiresAtMs) {
+        String sql = "UPDATE eternal_permission_requests SET status = ?, decided_by_uuid = ?, "
+                + "decided_by_name = ?, decided_at = ?, decision_note = ?, expires_at = ? "
+                + "WHERE id = ? AND status = 'PENDING'";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, status.name());
+            ps.setString(2, byUuid.toString());
+            ps.setString(3, byName);
+            ps.setLong(4, System.currentTimeMillis());
+            if (note == null) ps.setNull(5, java.sql.Types.VARCHAR); else ps.setString(5, note);
+            if (expiresAtMs == null) ps.setNull(6, java.sql.Types.BIGINT); else ps.setLong(6, expiresAtMs);
+            ps.setLong(7, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException ex) {
+            throw new StorageException("decidePermissionRequest failed", ex);
+        }
+    }
+
+    @Override
+    public int sweepExpiredUserGrants() {
+        long now = System.currentTimeMillis();
+        int removed;
+        List<String[]> expired = new ArrayList<>();   // (uuid, key) to clear in CloudPerms
+        try (Connection c = conn()) {
+            // 1. Collect which grants are about to expire (for the CloudPerms clear).
+            try (PreparedStatement ps = c.prepareStatement(
+                    "SELECT user_uuid, permission_key FROM eternal_user_permissions "
+                    + "WHERE expires_at IS NOT NULL AND expires_at <= ?")) {
+                ps.setLong(1, now);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) expired.add(new String[]{rs.getString(1), rs.getString(2)});
+                }
+            }
+            // 2. Flip the APPROVED requests whose grant has now expired.
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE eternal_permission_requests SET status = 'EXPIRED' "
+                    + "WHERE status = 'APPROVED' AND expires_at IS NOT NULL AND expires_at <= ?")) {
+                ps.setLong(1, now);
+                ps.executeUpdate();
+            }
+            // 3. Delete the expired user-override grants themselves.
+            try (PreparedStatement ps = c.prepareStatement(
+                    "DELETE FROM eternal_user_permissions WHERE expires_at IS NOT NULL AND expires_at <= ?")) {
+                ps.setLong(1, now);
+                removed = ps.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("sweepExpiredUserGrants failed", ex);
+        }
+        // 4. Queue a CloudPerms clear for each lapsed grant so the in-game node
+        //    is removed too (the proxy applies it). JSON built by hand — keys
+        //    are permission strings, no quote/escape hazards.
+        for (String[] uk : expired) {
+            try {
+                UUID uuid = UUID.fromString(uk[0]);
+                String payload = "{\"scope\":\"user\",\"uuid\":\"" + uk[0]
+                        + "\",\"key\":\"" + uk[1] + "\",\"clear\":true}";
+                queueAction("CLOUDPERMS_WRITE", uuid, payload);
+            } catch (IllegalArgumentException ignored) { /* malformed uuid row — skip */ }
+        }
+        return removed;
+    }
+
+    private @NotNull de.eternal.core.model.PermissionRequest readPermissionRequest(@NotNull ResultSet rs) throws SQLException {
+        long decidedAt = rs.getLong("decided_at");
+        boolean hasDecidedAt = !rs.wasNull();
+        long expiresAt = rs.getLong("expires_at");
+        boolean hasExpiresAt = !rs.wasNull();
+        String decidedByUuid = rs.getString("decided_by_uuid");
+        return new de.eternal.core.model.PermissionRequest(
+                rs.getLong("id"),
+                UUID.fromString(rs.getString("requester_uuid")),
+                rs.getString("requester_name"),
+                rs.getString("permission_key"),
+                rs.getString("justification"),
+                de.eternal.core.model.PermissionRequest.Status.valueOf(rs.getString("status")),
+                Instant.ofEpochMilli(rs.getLong("created_at")),
+                decidedByUuid == null ? null : UUID.fromString(decidedByUuid),
+                rs.getString("decided_by_name"),
+                hasDecidedAt ? Instant.ofEpochMilli(decidedAt) : null,
+                rs.getString("decision_note"),
+                hasExpiresAt ? Instant.ofEpochMilli(expiresAt) : null
+        );
     }
 
     /* --- permission helpers ------------------------------------------ */
@@ -2047,17 +2379,21 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                 rs.getString("permission_key"),
                 rs.getInt("granted") != 0,
                 Instant.ofEpochMilli(rs.getLong("updated_at")),
-                rs.getString("updated_by")
+                rs.getString("updated_by"),
+                null   // role grants never expire
         );
     }
 
     private @NotNull PermissionGrant readUserGrant(@NotNull ResultSet rs) throws SQLException {
+        long exp = rs.getLong("expires_at");
+        Instant expiresAt = rs.wasNull() ? null : Instant.ofEpochMilli(exp);
         return new PermissionGrant(
                 rs.getString("user_uuid"),
                 rs.getString("permission_key"),
                 rs.getInt("granted") != 0,
                 Instant.ofEpochMilli(rs.getLong("updated_at")),
-                rs.getString("updated_by")
+                rs.getString("updated_by"),
+                expiresAt
         );
     }
 
@@ -3476,20 +3812,26 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
     }
 
     @Override
-    public @NotNull List<ChatLogEntry> findChatAround(@Nullable String server, long anchorMs, int before, int after) {
+    public @NotNull List<ChatLogEntry> findChatAround(@Nullable String server, long anchorMs, int before, int after, long windowMs) {
         int safeBefore = Math.max(0, Math.min(500, before));
         int safeAfter = Math.max(0, Math.min(500, after));
         boolean hasServer = server != null && !server.isBlank();
+        boolean bounded = windowMs > 0;
         List<ChatLogEntry> result = new ArrayList<>();
         try (Connection c = conn()) {
-            // `before` rows: created_at < anchor, newest first, then re-sorted ASC below.
+            // `before` rows: created_at < anchor (and >= anchor - window so an
+            // anchor in a chat-less gap can't reach back to far-older messages),
+            // newest first, then re-sorted ASC below.
             if (safeBefore > 0) {
                 String sql = "SELECT * FROM eternal_chat_log WHERE created_at < ?"
+                        + (bounded ? " AND created_at >= ?" : "")
                         + (hasServer ? " AND server = ?" : "")
                         + " ORDER BY created_at DESC LIMIT " + safeBefore;
                 try (PreparedStatement ps = c.prepareStatement(sql)) {
-                    ps.setLong(1, anchorMs);
-                    if (hasServer) ps.setString(2, server);
+                    int idx = 1;
+                    ps.setLong(idx++, anchorMs);
+                    if (bounded) ps.setLong(idx++, anchorMs - windowMs);
+                    if (hasServer) ps.setString(idx, server);
                     try (ResultSet rs = ps.executeQuery()) {
                         List<ChatLogEntry> beforeRows = new ArrayList<>();
                         while (rs.next()) beforeRows.add(readChatLog(rs));
@@ -3498,14 +3840,19 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                     }
                 }
             }
-            // `after` rows: created_at >= anchor, ASC.
+            // `after` rows: created_at >= anchor (and <= anchor + window so a
+            // chat-less gap after the anchor can't pull in messages from days
+            // later), ASC.
             if (safeAfter > 0) {
                 String sql = "SELECT * FROM eternal_chat_log WHERE created_at >= ?"
+                        + (bounded ? " AND created_at <= ?" : "")
                         + (hasServer ? " AND server = ?" : "")
                         + " ORDER BY created_at ASC LIMIT " + safeAfter;
                 try (PreparedStatement ps = c.prepareStatement(sql)) {
-                    ps.setLong(1, anchorMs);
-                    if (hasServer) ps.setString(2, server);
+                    int idx = 1;
+                    ps.setLong(idx++, anchorMs);
+                    if (bounded) ps.setLong(idx++, anchorMs + windowMs);
+                    if (hasServer) ps.setString(idx, server);
                     try (ResultSet rs = ps.executeQuery()) {
                         while (rs.next()) result.add(readChatLog(rs));
                     }

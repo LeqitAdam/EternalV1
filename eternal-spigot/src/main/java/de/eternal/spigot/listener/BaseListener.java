@@ -37,12 +37,18 @@ public final class BaseListener implements Listener {
     @EventHandler
     public void onJoin(@NotNull PlayerJoinEvent event) {
         Player joiner = event.getPlayer();
-        // Re-hide everyone who is currently vanished from the new arrival.
-        for (Player other : plugin.getServer().getOnlinePlayers()) {
-            if (!other.equals(joiner) && plugin.sessions().vanished.contains(other.getUniqueId())) {
-                joiner.hidePlayer(plugin, other);
+        // Re-hide everyone currently vanished from the new arrival. Deferred one
+        // tick: calling hidePlayer inside PlayerJoinEvent can run before the
+        // client has spawned the other players, so the hide wouldn't stick and
+        // the joiner would still see vanished staff.
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!joiner.isOnline()) return;
+            for (Player other : plugin.getServer().getOnlinePlayers()) {
+                if (!other.equals(joiner) && plugin.sessions().vanished.contains(other.getUniqueId())) {
+                    joiner.hidePlayer(plugin, other);
+                }
             }
-        }
+        });
     }
 
     @EventHandler

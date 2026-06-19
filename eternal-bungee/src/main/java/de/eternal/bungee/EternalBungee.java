@@ -59,6 +59,11 @@ public final class EternalBungee extends Plugin {
             registerCommands();
             getProxy().getPluginManager().registerListener(this, new BungeeConnectionListener(this));
             getProxy().getPluginManager().registerListener(this, new BungeeChatListener(this));
+            // Proxy-handled commands (/ban, /server, /glist, …) never reach a
+            // backend, so the Spigot command logger can't see them — this
+            // listener records them straight into the chat-log on the proxy.
+            getProxy().getPluginManager().registerListener(this,
+                    new de.eternal.bungee.listener.ChatLogListener(this));
             // Cross-server staff broadcast for web-issued bans/mutes —
             // the API queues a BROADCAST action, the receiving Spigot
             // forwards it via plugin-message on this channel, and we

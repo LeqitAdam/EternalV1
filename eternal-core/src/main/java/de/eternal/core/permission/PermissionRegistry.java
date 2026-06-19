@@ -95,10 +95,21 @@ public final class PermissionRegistry {
                 "Darf Entbannungsanträge approve/deny/shorten.", DefaultGrant.ADMIN_ONLY);
         register("eternal.web.admin", "web", "Admin-Panel",
                 "Darf das Admin-Panel + Rollenverwaltung.", DefaultGrant.ADMIN_ONLY);
+        register("eternal.web.chatlogs", "web", "Chat-Logs",
+                "Darf die netzwerkweiten Chat-Logs im Dashboard durchsuchen.", DefaultGrant.STAFF_ANY);
+        register("eternal.web.chatlogs.sensitive", "web", "Sensible Chat-Logs",
+                "Darf Login/Register/Passwort-Befehle einsehen.", DefaultGrant.ADMIN_ONLY);
 
         // --- Generic notify ---
         register("eternal.notify", "notify", "Mod-Broadcasts",
                 "Empfängt Broadcasts bei Bans/Mutes.", DefaultGrant.STAFF_ANY);
+
+        // --- Team / self-service ---
+        // Marks a user as a team member who may request permissions via the
+        // self-service access-request page. Gewährt selbst nichts ausser dem
+        // Zugang zur Bestell-Seite — Admin vergibt ihn an die Team-Ränge.
+        register("eternal.team", "team", "Teammitglied",
+                "Darf sich auf der Bestell-Seite Rechte anfragen.", DefaultGrant.STAFF_ANY);
     }
 
     /** Add a per-reason ban key — generated when {@code reasons.yml}

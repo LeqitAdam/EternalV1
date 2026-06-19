@@ -8,14 +8,18 @@ import org.jetbrains.annotations.Nullable;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
 public final class ApiConfig {
 
-    public record ApiKey(@NotNull String key, @NotNull Role role, @NotNull String name, @Nullable UUID uuid) {
-        public enum Role { ADMIN, MOD }
+    /**
+     * A trusted static API key. Legacy ADMIN/MOD roles are gone — a static key
+     * grants FULL access (it's a server-config secret), so it has no role field.
+     * Authorization for everything else is permission-based via the user's
+     * CloudNet role grants.
+     */
+    public record ApiKey(@NotNull String key, @NotNull String name, @Nullable UUID uuid) {
     }
 
     public record Server(@NotNull String host, int port, @NotNull List<String> allowedOrigins) {
@@ -24,25 +28,20 @@ public final class ApiConfig {
     public record SessionConfig(int ttlSeconds, int linkTtlSeconds) {
     }
 
-    public record RoleConfig(int staffTierThreshold, int adminTierThreshold) {
-    }
-
     private final Server server;
     private final DatabaseConfig database;
     private final List<ApiKey> apiKeys;
     private final String internalSecret;
     private final SessionConfig session;
-    private final RoleConfig roles;
 
     public ApiConfig(@NotNull Server server, @NotNull DatabaseConfig database,
                      @NotNull List<ApiKey> keys, @NotNull String internalSecret,
-                     @NotNull SessionConfig session, @NotNull RoleConfig roles) {
+                     @NotNull SessionConfig session) {
         this.server = server;
         this.database = database;
         this.apiKeys = List.copyOf(keys);
         this.internalSecret = internalSecret;
         this.session = session;
-        this.roles = roles;
     }
 
     public Server server() { return server; }
@@ -50,7 +49,6 @@ public final class ApiConfig {
     public List<ApiKey> apiKeys() { return apiKeys; }
     public String internalSecret() { return internalSecret; }
     public SessionConfig session() { return session; }
-    public RoleConfig roles() { return roles; }
 
     public static @NotNull ApiConfig fromMap(@NotNull Map<String, Object> raw, @NotNull Path workingDir) {
         Map<String, Object> serverRaw = Configs.sectionOr(raw, "server");
@@ -69,11 +67,11 @@ public final class ApiConfig {
         for (Map<String, Object> entry : Configs.sectionListOr(raw, "api-keys")) {
             String k = Configs.stringOr(entry, "key", "");
             if (k.isBlank() || k.equals("REPLACE_WITH_RANDOM_STRING")) continue;
-            ApiKey.Role role = ApiKey.Role.valueOf(Configs.stringOr(entry, "role", "MOD").toUpperCase(Locale.ROOT));
-            String name = Configs.stringOr(entry, "name", role.name());
+            // `role:` in the entry (if any) is ignored now — static keys are full-access.
+            String name = Configs.stringOr(entry, "name", "api-key");
             String uuidRaw = Configs.stringOrNull(entry, "uuid");
             UUID uuid = uuidRaw == null ? null : UUID.fromString(uuidRaw);
-            keys.add(new ApiKey(k, role, name, uuid));
+            keys.add(new ApiKey(k, name, uuid));
         }
 
         String secret = Configs.stringOr(Configs.sectionOr(raw, "internal"),
@@ -85,12 +83,6 @@ public final class ApiConfig {
                 Configs.intOr(sessionRaw, "link-ttl-seconds", 300)
         );
 
-        Map<String, Object> rolesRaw = Configs.sectionOr(raw, "roles");
-        RoleConfig roles = new RoleConfig(
-                Configs.intOr(rolesRaw, "staff-tier-threshold", 25),
-                Configs.intOr(rolesRaw, "admin-tier-threshold", 90)
-        );
-
-        return new ApiConfig(server, db, keys, secret, session, roles);
+        return new ApiConfig(server, db, keys, secret, session);
     }
 }

@@ -33,6 +33,9 @@ public final class AdminActionPoller {
     /** Web-queued permission-refresh request. We fan it out to a
      *  per-online-player PERM_REFRESH the Spigot ActionPoller applies. */
     public static final String TYPE_PERM_REFRESH_REQUEST = "PERM_REFRESH_REQUEST";
+    /** Web-queued grant to push into CloudPerms (group or user node). Only the
+     *  proxy has the CloudNet driver, so the write happens here. */
+    public static final String TYPE_CLOUDPERMS_WRITE = "CLOUDPERMS_WRITE";
 
     private final EternalBungee plugin;
     private ScheduledTask task;
@@ -75,6 +78,15 @@ public final class AdminActionPoller {
             var groups = plugin.cloudPerms().allGroups();
             if (groups.isEmpty()) return;
             plugin.storage().replaceCloudGroups(groups);
+
+            // Mirror each group's OWN in-game permission nodes into the DB so the
+            // standalone API (no CloudPerms) can resolve + prioritize them over
+            // the web role config.
+            java.util.Map<String, java.util.Map<String, Boolean>> groupPerms = new java.util.LinkedHashMap<>();
+            for (var g : groups) {
+                groupPerms.put(g.name(), plugin.cloudPerms().groupPermissions(g.name()));
+            }
+            plugin.storage().replaceCloudGroupPerms(groupPerms);
 
             if (plugin.storage() instanceof de.eternal.core.permission.PermissionStorage perms) {
                 for (var g : groups) {
@@ -130,6 +142,43 @@ public final class AdminActionPoller {
                 // Failures are logged above for the operator.
                 plugin.storage().consumeAction(action.id());
             }
+        }
+
+        // Web → CloudPerms: push dashboard grants into the CloudNet group/user
+        // so they actually resolve in-game (CloudPerms owns the permissible).
+        for (ActionEntry action : plugin.storage().pendingActionsByType(TYPE_CLOUDPERMS_WRITE)) {
+            try {
+                handleCloudPermsWrite(action);
+            } catch (Exception ex) {
+                plugin.getLogger().warning("CLOUDPERMS_WRITE action #" + action.id()
+                        + " failed: " + ex.getMessage());
+            } finally {
+                plugin.storage().consumeAction(action.id());
+            }
+        }
+    }
+
+    /**
+     * Payload: {@code {scope:"group|user", group?, uuid?, key, granted, clear}}.
+     * Writes the node into CloudPerms — group grants affect every member, user
+     * grants the one player. Both clear-able.
+     */
+    private void handleCloudPermsWrite(@NotNull ActionEntry action) {
+        JsonObject body = JsonParser.parseString(action.payload()).getAsJsonObject();
+        String scope = body.get("scope").getAsString();
+        String key = body.get("key").getAsString();
+        boolean clear = body.has("clear") && body.get("clear").getAsBoolean();
+        boolean granted = body.has("granted") && body.get("granted").getAsBoolean();
+        if ("group".equals(scope)) {
+            String group = body.get("group").getAsString();
+            boolean ok = clear ? plugin.cloudPerms().removeGroupPermission(group, key)
+                               : plugin.cloudPerms().setGroupPermission(group, key, granted);
+            if (!ok) plugin.getLogger().warning("CloudPerms group write failed: " + group + " / " + key);
+        } else {
+            UUID uuid = UUID.fromString(body.get("uuid").getAsString());
+            boolean ok = clear ? plugin.cloudPerms().removeUserPermission(uuid, key)
+                               : plugin.cloudPerms().setUserPermission(uuid, key, granted);
+            if (!ok) plugin.getLogger().warning("CloudPerms user write failed: " + uuid + " / " + key);
         }
     }
 

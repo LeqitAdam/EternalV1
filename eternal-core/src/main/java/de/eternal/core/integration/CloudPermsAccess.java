@@ -99,6 +99,206 @@ public final class CloudPermsAccess {
     }
 
     /**
+     * A CloudNet group's OWN permission nodes as {@code name → granted}.
+     * {@code granted = potency >= 0} (CloudNet's negative potency = denied node).
+     * Reflective across CN3/CN4: resolve the group, read its permission
+     * collection ({@code permissions()} / {@code getPermissions()}), then each
+     * entry's name + potency. Group INHERITANCE is not resolved — only the
+     * group's own nodes. Empty when CloudNet isn't reachable / group unknown.
+     */
+    public @NotNull java.util.Map<String, Boolean> groupPermissions(@NotNull String name) {
+        if (!available()) return Collections.emptyMap();
+        try {
+            Method groupByName = null;
+            for (String mname : new String[]{"group", "getGroup"}) {
+                try { groupByName = management.getClass().getMethod(mname, String.class); break; }
+                catch (NoSuchMethodException ignored) {}
+            }
+            if (groupByName == null) return Collections.emptyMap();
+            Object group = groupByName.invoke(management, name);
+            if (group == null) return Collections.emptyMap();
+
+            Object permsRaw = null;
+            for (String mname : new String[]{"permissions", "getPermissions"}) {
+                try {
+                    permsRaw = group.getClass().getMethod(mname).invoke(group);
+                    if (permsRaw != null) break;
+                } catch (NoSuchMethodException ignored) {}
+            }
+            if (!(permsRaw instanceof java.util.Collection<?> col)) return Collections.emptyMap();
+
+            java.util.Map<String, Boolean> out = new java.util.LinkedHashMap<>();
+            for (Object perm : col) {
+                if (perm == null) continue;
+                String pname = readPermissionName(perm);
+                if (pname == null || pname.isEmpty()) continue;
+                out.put(pname, readPermissionPotency(perm) >= 0);
+            }
+            return out;
+        } catch (Throwable t) {
+            logger.warning("CloudPerms groupPermissions failed for " + name + ": " + t.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    private static @org.jetbrains.annotations.Nullable String readPermissionName(@NotNull Object perm) {
+        for (String mname : new String[]{"name", "getName"}) {
+            try {
+                Object v = perm.getClass().getMethod(mname).invoke(perm);
+                if (v != null) return String.valueOf(v);
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return null;
+    }
+
+    private static int readPermissionPotency(@NotNull Object perm) {
+        for (String mname : new String[]{"potency", "getPotency"}) {
+            try {
+                Object v = perm.getClass().getMethod(mname).invoke(perm);
+                if (v instanceof Number n) return n.intValue();
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return 0;
+    }
+
+    /* --- permission WRITE (web → CloudPerms) ---------------------------- */
+
+    /** Set a permission node on a CloudNet USER (potency 1 = grant, -1 = deny),
+     *  persisted centrally so it applies to the offline player too. */
+    public boolean setUserPermission(@NotNull UUID uuid, @NotNull String node, boolean granted) {
+        if (!available()) return false;
+        try {
+            Object user = userMethod.invoke(management, uuid);
+            if (user == null) return false;
+            if (!writePermission(user, node, granted)) return false;
+            return pushUserUpdate(user);
+        } catch (Throwable t) {
+            logger.warning("setUserPermission failed for " + uuid + " " + node + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Remove a permission node from a CloudNet USER. */
+    public boolean removeUserPermission(@NotNull UUID uuid, @NotNull String node) {
+        if (!available()) return false;
+        try {
+            Object user = userMethod.invoke(management, uuid);
+            if (user == null) return false;
+            invokeOneArg(user, "removePermission", node);
+            return pushUserUpdate(user);
+        } catch (Throwable t) {
+            logger.warning("removeUserPermission failed for " + uuid + " " + node + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Set a permission node on a CloudNet GROUP (affects every member). */
+    public boolean setGroupPermission(@NotNull String groupName, @NotNull String node, boolean granted) {
+        if (!available()) return false;
+        try {
+            Object group = resolveGroup(groupName);
+            if (group == null) return false;
+            if (!writePermission(group, node, granted)) return false;
+            return pushGroupUpdate(group);
+        } catch (Throwable t) {
+            logger.warning("setGroupPermission failed for " + groupName + " " + node + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** Remove a permission node from a CloudNet GROUP. */
+    public boolean removeGroupPermission(@NotNull String groupName, @NotNull String node) {
+        if (!available()) return false;
+        try {
+            Object group = resolveGroup(groupName);
+            if (group == null) return false;
+            invokeOneArg(group, "removePermission", node);
+            return pushGroupUpdate(group);
+        } catch (Throwable t) {
+            logger.warning("removeGroupPermission failed for " + groupName + " " + node + ": " + t.getMessage());
+            return false;
+        }
+    }
+
+    private @org.jetbrains.annotations.Nullable Object resolveGroup(@NotNull String name) {
+        for (String mname : new String[]{"group", "getGroup"}) {
+            try { return management.getClass().getMethod(mname, String.class).invoke(management, name); }
+            catch (NoSuchMethodException ignored) {}
+            catch (Throwable t) { return null; }
+        }
+        return null;
+    }
+
+    /** Writes a permission onto a permissible (user/group): builds a Permission
+     *  with the right potency for deny-support, falling back to the String
+     *  overload (grant only) when no Permission object could be built. */
+    private static boolean writePermission(@NotNull Object permissible, @NotNull String node, boolean granted) {
+        Object perm = buildPermission(node, granted ? 1 : -1);
+        if (perm != null && invokeOneArg(permissible, "addPermission", perm)) return true;
+        return granted && invokeOneArg(permissible, "addPermission", node);
+    }
+
+    /** Reflectively build a CloudNet {@code Permission} (CN4 builder → CN3 ctor
+     *  → CN4 {@code of(String)}). Null when the class/shape isn't found. */
+    private static @org.jetbrains.annotations.Nullable Object buildPermission(@NotNull String node, int potency) {
+        Class<?> permClass = null;
+        for (String fqn : new String[]{
+                "eu.cloudnetservice.driver.permission.Permission",
+                "de.dytanic.cloudnet.driver.permission.Permission"}) {
+            try { permClass = Class.forName(fqn); break; } catch (ClassNotFoundException ignored) {}
+        }
+        if (permClass == null) return null;
+        try {
+            Object builder = permClass.getMethod("builder").invoke(null);
+            invokeOneArg(builder, "name", node);
+            invokeOneArg(builder, "potency", potency);
+            Object p = builder.getClass().getMethod("build").invoke(builder);
+            if (p != null) return p;
+        } catch (Throwable ignored) { /* try next shape */ }
+        try {
+            return permClass.getConstructor(String.class, int.class).newInstance(node, potency);
+        } catch (Throwable ignored) { /* try next shape */ }
+        try {
+            return permClass.getMethod("of", String.class).invoke(null, node);
+        } catch (Throwable ignored) { /* give up */ }
+        return null;
+    }
+
+    /** Invoke the first single-arg method named {@code name} whose parameter the
+     *  arg fits (handles int/Integer autobox). Returns true on a successful call. */
+    private static boolean invokeOneArg(@NotNull Object target, @NotNull String name, @NotNull Object arg) {
+        for (Method m : target.getClass().getMethods()) {
+            if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
+            Class<?> pt = m.getParameterTypes()[0];
+            boolean fits = pt.isInstance(arg)
+                    || ((pt == int.class || pt == Integer.class) && arg instanceof Integer);
+            if (!fits) continue;
+            try { m.invoke(target, arg); return true; }
+            catch (Throwable t) { return false; }
+        }
+        return false;
+    }
+
+    /** Persists a modified PermissionGroup back to CloudNet (CN3 + CN4). */
+    private boolean pushGroupUpdate(@NotNull Object group) {
+        for (String mname : new String[]{"updateGroup", "updatePermissionGroup"}) {
+            for (Method m : management.getClass().getMethods()) {
+                if (!m.getName().equals(mname) || m.getParameterCount() != 1) continue;
+                if (!m.getParameterTypes()[0].isInstance(group)) continue;
+                try { m.invoke(management, group); return true; }
+                catch (Throwable t) {
+                    logger.warning("pushGroupUpdate via " + mname + " failed: " + t.getMessage());
+                    return false;
+                }
+            }
+        }
+        logger.warning("pushGroupUpdate: no updateGroup method matched the group type");
+        return false;
+    }
+
+    /**
      * Adds {@code group} to the CloudNet permission user. Works for
      * offline players too — CloudNet's permission store is central, not
      * per-server. Returns true on success.

@@ -47,6 +47,12 @@ remote moderation.
 - **CloudNet integration** — group memberships translate into
   `eternal.*` permissions on both Spigot and Bungee via reflection;
   works just as well without CloudNet (manual `eternal.tier.<n>` perms).
+- **Party & friends** *(optional `eternal-party`)* — cross-server
+  parties and friend lists with in-game `/party` + `/friend`, invites
+  and join/leave notifications relayed through Bungee. Shares the main DB.
+- **Autonicker** *(optional `eternal-autonicker`)* — random name / skin /
+  rank disguise for staff via `/autonick` (ProtocolLib). Nick sessions
+  persist in the shared DB so real identities survive a restart.
 
 ## Tech stack
 
@@ -87,6 +93,12 @@ remote moderation.
 
 A few things worth pointing out:
 
+- **One jar, both platforms.** `eternal-spigot` and `eternal-bungee` are
+  plain code libraries; the build module `eternal-plugin` shades them
+  (plus `eternal-core`) into a single `Eternal-*.jar` that carries *both*
+  `plugin.yml` (Spigot main) and `bungee.yml` (Bungee main). Drop the same
+  file into every Spigot **and** the Bungee proxy — each side loads only
+  its own entry point, so the unused base class is never resolved.
 - **Bungee owns DB-touching commands** (`/ban`, `/lookup`, `/history`, …).
   Spigot has the same commands as a single-server fallback, but on a
   network Bungee intercepts them before they reach the backend — so
@@ -103,13 +115,16 @@ A few things worth pointing out:
 
 | Module           | What it does                                                            |
 | ---------------- | ----------------------------------------------------------------------- |
-| `eternal-core`   | Shared models, storage interface + SQL implementation, config layer, services. Zero Bukkit/Bungee deps so both sides can import it. |
-| `eternal-spigot` | Spigot/Paper plugin — listeners, in-game commands, report GUI, plugin-message bridges to Bungee, replay-bridge to the standalone replay plugin. |
-| `eternal-bungee` | BungeeCord plugin — proxy-level commands, kick handling, cross-server broadcasts, web-action polling, plugin-message hub. |
-| `eternal-api`    | Standalone Javalin REST service — auth via Minecraft account link or API key, sessions, reports, appeals, action queue. |
-| `eternal-replay` | Standalone replay plugin — always-on recorder, persisted gzipped replay files, spectator-mode playback, ProtocolLib NPCs with skin replay. |
-| `eternal-web`    | Angular 17 dashboard — Material + Tailwind, dark theme, Eternal-pink accents. Player view + moderator view + admin view. |
-| `eternal-landing`| Angular 17 public sales / docs site — standalone build, DE+EN via ngx-translate, ready to host on the main domain.            |
+| `eternal-core`     | Shared models, storage interface + SQL implementation, config layer, services. Zero Bukkit/Bungee deps so both sides can import it. |
+| `eternal-spigot`   | Spigot/Paper **code library** (no descriptor of its own) — listeners, in-game commands, report GUI, plugin-message bridges to Bungee, replay-bridge. Shaded into `eternal-plugin`, not deployed on its own. |
+| `eternal-bungee`   | BungeeCord **code library** — proxy-level commands, kick handling, cross-server broadcasts, web-action polling, plugin-message hub. Shaded into `eternal-plugin`, not deployed on its own. |
+| `eternal-plugin`   | The **single deployable jar**. No code of its own — shades `eternal-core` + `eternal-spigot` + `eternal-bungee` into one fat `Eternal-*.jar` carrying *both* `plugin.yml` and `bungee.yml`. Same jar goes into every Spigot **and** the Bungee proxy. |
+| `eternal-api`      | Standalone Javalin REST service — auth via Minecraft account link or API key, sessions, reports, appeals, action queue. |
+| `eternal-replay`   | Standalone replay plugin — always-on recorder, persisted gzipped replay files, spectator-mode playback, ProtocolLib NPCs with skin replay. |
+| `eternal-party`    | *Optional.* Party + Friends — one jar with both `plugin.yml` + `bungee.yml`, `/party` + `/friend` with cross-server invites/notifications. Shares the main DB. |
+| `eternal-autonicker`| *Optional.* Autonicker (Spigot only) — random name/skin/rank disguise via ProtocolLib (`/autonick`); nick sessions persisted in the shared DB. |
+| `eternal-web`      | Angular 17 dashboard — Material + Tailwind, dark theme, Eternal-pink accents. Player view + moderator view + admin view. |
+| `eternal-landing`  | Angular 17 public sales / docs site — standalone build, DE+EN via ngx-translate, ready to host on the main domain.            |
 
 ## Quick start
 
@@ -117,12 +132,17 @@ A few things worth pointing out:
 mvn -DskipTests clean install
 ```
 
-Output JARs:
+Deployable JARs:
 
-- `eternal-spigot/target/EternalSpigot-*.jar` → every Spigot's `plugins/`
-- `eternal-bungee/target/EternalBungee-*.jar` → Bungee proxy's `plugins/`
+- `eternal-plugin/target/Eternal-*.jar` → every Spigot **and** the Bungee proxy's `plugins/` (one jar, both descriptors)
 - `eternal-replay/target/EternalReplay-*.jar` → every Spigot's `plugins/`
 - `eternal-api/target/EternalApi-*.jar` → standalone REST host (`java -jar EternalApi-*.jar`)
+- `eternal-party/target/EternalParty-*.jar` → *(optional)* every Spigot **and** the Bungee proxy's `plugins/`
+- `eternal-autonicker/target/EternalAutonicker-*.jar` → *(optional)* every Spigot's `plugins/`
+
+> `eternal-core`, `eternal-spigot`, and `eternal-bungee` also build jars
+> under their own `target/`, but those are plain libraries shaded into the
+> deployables above — don't drop them into a server.
 
 Dashboard:
 
@@ -153,7 +173,14 @@ key lives in both `de.yml` and `en.yml` — fallback is `de`.
 
 ## Permissions
 
-Verbs split into base and `.admin` escalation. Tier gating
+There are **no legacy ADMIN/MOD/PLAYER roles** — both in-game and the dashboard
+authorize purely on `eternal.*` permissions granted to a player's CloudNet rank
+(with wildcard support, so an Owner with `*` gets everything). Dashboard access
+maps to `eternal.web.*` keys, configured per rank in the in-app role editor.
+Full model, resolution order, wildcards, bootstrap and the per-area mapping:
+**[docs/PERMISSIONS.md](docs/PERMISSIONS.md)**.
+
+In-game verbs split into base and `.admin` escalation. Tier gating
 (`max(eternal.tier.X perm, CloudNet sortId)`) affects ban/unban only —
 lookup/history are flat.
 

@@ -21,12 +21,18 @@ import java.time.Instant;
  *         (user → role → hardcoded default)</li>
  * </ul>
  * </p>
+ *
+ * <p>{@link #expiresAt} is only meaningful for user-level grants minted by an
+ * approved access-request with a duration: once it's in the past the grant is
+ * treated as absent (see {@code PermissionService.resolve}). {@code null} =
+ * never expires (all role grants + permanent user grants).</p>
  */
 public record PermissionGrant(
         @NotNull String subject,
         @NotNull String permissionKey,
         boolean granted,
         @NotNull Instant updatedAt,
-        @Nullable String updatedBy
+        @Nullable String updatedBy,
+        @Nullable Instant expiresAt
 ) {
 }

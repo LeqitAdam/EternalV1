@@ -1,5 +1,7 @@
 package de.eternal.spigot.command;
 
+import de.eternal.core.model.PunishmentEntry;
+import de.eternal.core.time.DurationParser;
 import de.eternal.spigot.EternalSpigot;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -10,9 +12,11 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 /** /broadcast, /msg, /reply, /kill. */
@@ -78,6 +82,22 @@ public final class CommsCommand implements CommandExecutor, TabCompleter {
 
     /** Sends the private message both ways and records reply targets. */
     private void deliver(CommandSender sender, Player target, String text) {
+        // Muted players must not be able to DM via /msg or /reply — same gate as
+        // public chat, otherwise private messages are a mute bypass.
+        if (sender instanceof Player muteCheck) {
+            Optional<PunishmentEntry> mute = plugin.punishments().activeMute(muteCheck.getUniqueId());
+            if (mute.isPresent()) {
+                PunishmentEntry m = mute.get();
+                String remaining = m.isPermanent()
+                        ? "permanent"
+                        : DurationParser.formatRemaining(
+                                Math.max(0, m.expiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
+                plugin.messages().send(muteCheck, "mute-blocked-chat",
+                        "reason", m.reasonLabel(), "remaining", remaining);
+                return;
+            }
+        }
+
         String senderName = sender instanceof Player sp ? sp.getName() : "Console";
         sender.sendMessage(plugin.messages().format("msg-out", "target", target.getName(), "message", text));
         target.sendMessage(plugin.messages().format("msg-in", "sender", senderName, "message", text));

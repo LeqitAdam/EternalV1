@@ -63,6 +63,12 @@ public interface EternalStorage extends AutoCloseable {
      *  highest sortId first. */
     @NotNull List<de.eternal.core.integration.CloudPermsAccess.GroupInfo> listCloudGroups();
 
+    /** Replaces the mirror of each CloudNet group's own permission nodes
+     *  ({@code group → (key → granted)}). Synced periodically by the Bungee
+     *  admin poller; read during authorization, prioritized over web role
+     *  grants. Full replace each cycle. */
+    void replaceCloudGroupPerms(@NotNull java.util.Map<String, java.util.Map<String, Boolean>> byGroup);
+
     @NotNull Optional<PlayerProfile> findProfile(@NotNull UUID uuid);
 
     @NotNull Optional<PlayerProfile> findProfileByName(@NotNull String name);

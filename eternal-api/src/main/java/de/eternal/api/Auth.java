@@ -4,7 +4,7 @@ import de.eternal.core.model.Session;
 import de.eternal.core.permission.PermissionService;
 import de.eternal.core.storage.EternalStorage;
 import io.javalin.http.Context;
-import io.javalin.http.HttpStatus;
+import io.javalin.http.ForbiddenResponse;
 import io.javalin.http.UnauthorizedResponse;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -16,18 +16,27 @@ import java.util.UUID;
 
 /**
  * Bearer-token authentication. Accepts either:
- *  - A static API key from the api.yml file (role = ADMIN | MOD), or
+ *  - A static API key from the api.yml file (full access — trusted secret), or
  *  - A web session token issued via the /auth/link flow (stored in DB).
+ *
+ * Legacy ADMIN/MOD/PLAYER roles are gone: every action is gated by an
+ * {@code eternal.*} permission via {@link PermissionService}, resolved from the
+ * user's CloudNet group/role grants. Static API keys bypass that chain
+ * ({@code fullAccess}).
  *
  * The "internal" shared secret is checked separately for plugin->API calls
  * via the X-Internal-Secret header.
  */
 public final class Auth {
 
-    /** Logical principal — combines API-key entries and DB-backed sessions. */
-    public record Principal(@NotNull String name, @NotNull String role, @Nullable UUID uuid) {
-        public boolean isAdmin() { return role.equalsIgnoreCase("ADMIN"); }
-        public boolean isStaff() { return isAdmin() || role.equalsIgnoreCase("MOD"); }
+    /**
+     * Logical principal — a static API key or a DB-backed web session.
+     *
+     * @param fullAccess {@code true} only for static API keys (trusted
+     *                   server-config secrets); web sessions are always
+     *                   permission-resolved.
+     */
+    public record Principal(@NotNull String name, @Nullable UUID uuid, boolean fullAccess) {
     }
 
     private final Map<String, ApiConfig.ApiKey> byKey = new HashMap<>();
@@ -57,10 +66,10 @@ public final class Auth {
 
         ApiConfig.ApiKey staticKey = byKey.get(token);
         if (staticKey != null) {
-            return new Principal(staticKey.name(), staticKey.role().name(), staticKey.uuid());
+            return new Principal(staticKey.name(), staticKey.uuid(), true);
         }
         return storage.findSession(token)
-                .map(s -> new Principal(s.userName(), s.role(), s.userUuid()))
+                .map(s -> new Principal(s.userName(), s.userUuid(), false))
                 .orElse(null);
     }
 
@@ -70,40 +79,31 @@ public final class Auth {
         return p;
     }
 
-    public @NotNull Principal requireAdmin(@NotNull Context ctx) {
-        Principal p = require(ctx);
-        if (!p.isAdmin()) {
-            ctx.status(HttpStatus.FORBIDDEN);
-            throw new UnauthorizedResponse("Admin role required");
-        }
-        return p;
+    /** Does {@code p} hold permission {@code key}? Static API keys (fullAccess)
+     *  always do; sessions resolve through their CloudNet role grants. */
+    public boolean can(@NotNull Principal p, @NotNull String key) {
+        return permissions.has(new PermissionService.Principal(p.uuid(), p.fullAccess()), key);
     }
 
-    public @NotNull Principal requireStaff(@NotNull Context ctx) {
-        Principal p = require(ctx);
-        if (!p.isStaff()) {
-            ctx.status(HttpStatus.FORBIDDEN);
-            throw new UnauthorizedResponse("Staff role required");
-        }
-        return p;
+    /** Of {@code keys}, the subset {@code p} holds — one cheap bulk resolve for
+     *  the {@code /me} capability list. */
+    public @NotNull java.util.Set<String> capabilities(@NotNull Principal p,
+                                                       @NotNull java.util.Collection<String> keys) {
+        return permissions.grantedAmong(new PermissionService.Principal(p.uuid(), p.fullAccess()), keys);
     }
 
     /**
-     * The new gate. Resolves the principal, then asks
-     * {@link PermissionService} whether the user has {@code key}
-     * (user override → role setting → hardcoded default).
-     *
-     * <p>Use this instead of {@link #requireStaff} for actions you
-     * want admins to be able to scope per-role or per-user — e.g.
-     * {@code eternal.ban.reason.42} so a particular mod can be
-     * blocked from one specific ban reason without losing the rest.</p>
+     * The single authorization gate. Resolves the principal, then asks
+     * {@link PermissionService} whether they hold {@code key}
+     * (user override → CloudNet role grant → hardcoded default, with wildcard
+     * support so e.g. an Owner role granted {@code *} passes everything).
+     * Throws 403 (not 401) on denial so the dashboard shows "forbidden"
+     * instead of logging the user out.
      */
     public @NotNull Principal requirePermission(@NotNull Context ctx, @NotNull String key) {
         Principal p = require(ctx);
-        var permPrincipal = new PermissionService.Principal(p.uuid(), p.role());
-        if (!permissions.has(permPrincipal, key)) {
-            ctx.status(HttpStatus.FORBIDDEN);
-            throw new UnauthorizedResponse("Missing permission: " + key);
+        if (!can(p, key)) {
+            throw new ForbiddenResponse("Missing permission: " + key);
         }
         return p;
     }
@@ -111,8 +111,7 @@ public final class Auth {
     public void requireInternal(@NotNull Context ctx) {
         String header = ctx.header("X-Internal-Secret");
         if (header == null || !header.equals(internalSecret)) {
-            ctx.status(HttpStatus.FORBIDDEN);
-            throw new UnauthorizedResponse("Internal secret missing or invalid");
+            throw new ForbiddenResponse("Internal secret missing or invalid");
         }
     }
 

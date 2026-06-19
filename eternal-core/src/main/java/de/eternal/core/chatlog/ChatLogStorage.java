@@ -49,8 +49,15 @@ public interface ChatLogStorage {
      * Report context: {@code before} rows with created_at &lt; anchor (DESC then
      * re-sorted ASC) plus {@code after} rows with created_at &gt;= anchor ASC,
      * combined and returned chronological (ASC).
+     *
+     * <p>{@code windowMs} bounds how far either side may reach from the anchor:
+     * before rows are limited to {@code created_at >= anchor - windowMs} and
+     * after rows to {@code created_at <= anchor + windowMs}. Without this an old
+     * report whose anchor sits in a chat-less gap would pull in the next/previous
+     * messages that exist — possibly days later — instead of an empty window.
+     * Pass {@code windowMs <= 0} to disable the time bound (count-only).</p>
      */
-    @NotNull List<ChatLogEntry> findChatAround(@Nullable String server, long anchorMs, int before, int after);
+    @NotNull List<ChatLogEntry> findChatAround(@Nullable String server, long anchorMs, int before, int after, long windowMs);
 
     /** Kind in (CHAT, MSG) for the given sender, created_at ASC. For session clustering. */
     @NotNull List<ChatLogEntry> playerMessages(@NotNull String uuid, long fromMs, long toMs, int limit);

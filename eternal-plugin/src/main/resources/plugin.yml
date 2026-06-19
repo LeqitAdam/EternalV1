@@ -52,49 +52,49 @@ commands:
     description: Verwaltung und Account-Link.
     usage: /eternal <reload|link <code>>
   # --- base system (teleport, gamemode, fly, homes/warps/spawn, /sign, ...) ---
-  tp:        { description: Teleport., usage: /tp <Spieler> [Ziel], permission: eternal.base.tp }
-  tphere:    { description: Hol einen Spieler zu dir., usage: /tphere <Spieler>, permission: eternal.base.tphere }
-  tppos:     { description: Teleport zu Koordinaten., usage: /tppos <x> <y> <z> [welt], permission: eternal.base.tppos }
-  top:       { description: Teleport zum hoechsten Block., usage: /top, permission: eternal.base.top }
-  tpa:       { description: Teleport-Anfrage., usage: /tpa <Spieler>, permission: eternal.base.tpa }
-  tpahere:   { description: Bitte Spieler zu dir., usage: /tpahere <Spieler>, permission: eternal.base.tpa }
-  tpaccept:  { description: Anfrage annehmen., usage: /tpaccept, aliases: [tpyes], permission: eternal.base.tpa }
-  tpdeny:    { description: Anfrage ablehnen., usage: /tpdeny, aliases: [tpno], permission: eternal.base.tpa }
-  back:      { description: Zurueck zur letzten Position., usage: /back, permission: eternal.base.back }
-  gamemode:  { description: Spielmodus setzen., usage: /gm <0-3> [Spieler], aliases: [gm], permission: eternal.base.gamemode }
-  fly:       { description: Flugmodus., usage: /fly [Spieler], permission: eternal.base.fly }
-  speed:     { description: Tempo., usage: /speed <walk|fly> <0-10> [Spieler], permission: eternal.base.speed }
-  god:       { description: Unverwundbarkeit., usage: /god [Spieler], permission: eternal.base.god }
-  heal:      { description: Heilen., usage: /heal [Spieler], permission: eternal.base.heal }
-  feed:      { description: Saettigen., usage: /feed [Spieler], permission: eternal.base.feed }
-  setspawn:  { description: Spawn setzen., usage: /setspawn, permission: eternal.base.setspawn }
-  spawn:     { description: Zum Spawn., usage: /spawn, permission: eternal.base.spawn }
-  sethome:   { description: Zuhause setzen., usage: /sethome [name], permission: eternal.base.home }
-  home:      { description: Zu Zuhause., usage: /home [name], permission: eternal.base.home }
-  delhome:   { description: Zuhause loeschen., usage: /delhome <name>, permission: eternal.base.home }
-  homes:     { description: Home-Liste., usage: /homes, permission: eternal.base.home }
-  setwarp:   { description: Warp setzen., usage: /setwarp <name>, permission: eternal.base.setwarp }
-  warp:      { description: Zu Warp., usage: /warp <name>, permission: eternal.base.warp }
-  delwarp:   { description: Warp loeschen., usage: /delwarp <name>, permission: eternal.base.setwarp }
-  warps:     { description: Warp-Liste., usage: /warps, permission: eternal.base.warp }
-  hat:       { description: Item als Hut., usage: /hat, permission: eternal.base.hat }
-  repair:    { description: Reparieren., usage: /repair [all], aliases: [fix], permission: eternal.base.repair }
-  more:      { description: Stack auffuellen., usage: /more, permission: eternal.base.more }
-  sign:      { description: Item signieren., usage: /sign, permission: eternal.base.sign }
-  clearinventory: { description: Inventar leeren., usage: /ci [Spieler], aliases: [ci, clearinv], permission: eternal.base.clearinventory }
-  enderchest: { description: Enderchest., usage: /ec [Spieler], aliases: [ec], permission: eternal.base.enderchest }
-  workbench: { description: Werkbank., usage: /wb, aliases: [wb, craft], permission: eternal.base.workbench }
-  invsee:    { description: Inventar ansehen., usage: /invsee <Spieler>, permission: eternal.base.invsee }
-  time:      { description: Zeit setzen., usage: /time <day|night|set>, permission: eternal.base.time }
-  day:       { description: Tag., usage: /day, permission: eternal.base.time }
-  night:     { description: Nacht., usage: /night, permission: eternal.base.time }
-  weather:   { description: Wetter., usage: /weather <clear|rain|thunder>, permission: eternal.base.weather }
-  broadcast: { description: Ansage., usage: /broadcast <text>, aliases: [bc], permission: eternal.base.broadcast }
-  msg:       { description: Private Nachricht., usage: /msg <Spieler> <text>, aliases: [tell, w, whisper], permission: eternal.base.msg }
-  reply:     { description: Antworten., usage: /reply <text>, aliases: [r], permission: eternal.base.msg }
-  kill:      { description: Toeten., usage: /kill [Spieler], permission: eternal.base.kill }
-  vanish:    { description: Unsichtbar., usage: /vanish [Spieler], aliases: [v], permission: eternal.base.vanish }
-  socialspy: { description: Private Nachrichten mitlesen., usage: /socialspy [on|off], aliases: [spy], permission: eternal.socialspy }
+  tp:        { description: Teleport., usage: '/tp <Spieler> [Ziel]', permission: eternal.base.tp }
+  tphere:    { description: Hol einen Spieler zu dir., usage: '/tphere <Spieler>', permission: eternal.base.tphere }
+  tppos:     { description: Teleport zu Koordinaten., usage: '/tppos <x> <y> <z> [welt]', permission: eternal.base.tppos }
+  top:       { description: Teleport zum hoechsten Block., usage: '/top', permission: eternal.base.top }
+  tpa:       { description: Teleport-Anfrage., usage: '/tpa <Spieler>', permission: eternal.base.tpa }
+  tpahere:   { description: Bitte Spieler zu dir., usage: '/tpahere <Spieler>', permission: eternal.base.tpa }
+  tpaccept:  { description: Anfrage annehmen., usage: '/tpaccept', aliases: [tpyes], permission: eternal.base.tpa }
+  tpdeny:    { description: Anfrage ablehnen., usage: '/tpdeny', aliases: [tpno], permission: eternal.base.tpa }
+  back:      { description: Zurueck zur letzten Position., usage: '/back', permission: eternal.base.back }
+  gamemode:  { description: Spielmodus setzen., usage: '/gm <0-3> [Spieler]', aliases: [gm], permission: eternal.base.gamemode }
+  fly:       { description: Flugmodus., usage: '/fly [Spieler]', permission: eternal.base.fly }
+  speed:     { description: Tempo., usage: '/speed <walk|fly> <0-10> [Spieler]', permission: eternal.base.speed }
+  god:       { description: Unverwundbarkeit., usage: '/god [Spieler]', permission: eternal.base.god }
+  heal:      { description: Heilen., usage: '/heal [Spieler]', permission: eternal.base.heal }
+  feed:      { description: Saettigen., usage: '/feed [Spieler]', permission: eternal.base.feed }
+  setspawn:  { description: Spawn setzen., usage: '/setspawn', permission: eternal.base.setspawn }
+  spawn:     { description: Zum Spawn., usage: '/spawn', permission: eternal.base.spawn }
+  sethome:   { description: Zuhause setzen., usage: '/sethome [name]', permission: eternal.base.home }
+  home:      { description: Zu Zuhause., usage: '/home [name]', permission: eternal.base.home }
+  delhome:   { description: Zuhause loeschen., usage: '/delhome <name>', permission: eternal.base.home }
+  homes:     { description: Home-Liste., usage: '/homes', permission: eternal.base.home }
+  setwarp:   { description: Warp setzen., usage: '/setwarp <name>', permission: eternal.base.setwarp }
+  warp:      { description: Zu Warp., usage: '/warp <name>', permission: eternal.base.warp }
+  delwarp:   { description: Warp loeschen., usage: '/delwarp <name>', permission: eternal.base.setwarp }
+  warps:     { description: Warp-Liste., usage: '/warps', permission: eternal.base.warp }
+  hat:       { description: Item als Hut., usage: '/hat', permission: eternal.base.hat }
+  repair:    { description: Reparieren., usage: '/repair [all]', aliases: [fix], permission: eternal.base.repair }
+  more:      { description: Stack auffuellen., usage: '/more', permission: eternal.base.more }
+  sign:      { description: Item signieren., usage: '/sign', permission: eternal.base.sign }
+  clearinventory: { description: Inventar leeren., usage: '/ci [Spieler]', aliases: [ci, clearinv], permission: eternal.base.clearinventory }
+  enderchest: { description: Enderchest., usage: '/ec [Spieler]', aliases: [ec], permission: eternal.base.enderchest }
+  workbench: { description: Werkbank., usage: '/wb', aliases: [wb, craft], permission: eternal.base.workbench }
+  invsee:    { description: Inventar ansehen., usage: '/invsee <Spieler>', permission: eternal.base.invsee }
+  time:      { description: Zeit setzen., usage: '/time <day|night|set>', permission: eternal.base.time }
+  day:       { description: Tag., usage: '/day', permission: eternal.base.time }
+  night:     { description: Nacht., usage: '/night', permission: eternal.base.time }
+  weather:   { description: Wetter., usage: '/weather <clear|rain|thunder>', permission: eternal.base.weather }
+  broadcast: { description: Ansage., usage: '/broadcast <text>', aliases: [bc], permission: eternal.base.broadcast }
+  msg:       { description: Private Nachricht., usage: '/msg <Spieler> <text>', aliases: [tell, w, whisper], permission: eternal.base.msg }
+  reply:     { description: Antworten., usage: '/reply <text>', aliases: [r], permission: eternal.base.msg }
+  kill:      { description: Toeten., usage: '/kill [Spieler]', permission: eternal.base.kill }
+  vanish:    { description: Unsichtbar., usage: '/vanish [Spieler]', aliases: [v], permission: eternal.base.vanish }
+  socialspy: { description: Private Nachrichten mitlesen., usage: '/socialspy [on|off]', aliases: [spy], permission: eternal.socialspy }
 
 permissions:
   eternal.ban:

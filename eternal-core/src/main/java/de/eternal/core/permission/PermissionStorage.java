@@ -39,6 +39,11 @@ public interface PermissionStorage {
     /** All role-level grants for one role, keyed by permission key. */
     @NotNull Map<String, PermissionGrant> rolePermissions(@NotNull String roleName);
 
+    /** The in-game CloudPerms nodes mirrored for one CloudNet group, keyed by
+     *  permission key. Synced from the proxy; resolved with priority over the
+     *  web role grants (but under user overrides). Empty when none synced. */
+    @NotNull Map<String, PermissionGrant> cloudGroupPermissions(@NotNull String group);
+
     /** Set or update the role's setting for one permission key. */
     void setRolePermission(@NotNull String roleName, @NotNull String key,
                            boolean granted, @Nullable String updatedBy);
@@ -55,5 +60,38 @@ public interface PermissionStorage {
     void setUserPermission(@NotNull UUID userUuid, @NotNull String key,
                             boolean granted, @Nullable String updatedBy);
 
+    /** Same, but with an optional expiry (epoch ms) — used by approved access
+     *  requests. {@code null} = permanent. */
+    void setUserPermission(@NotNull UUID userUuid, @NotNull String key, boolean granted,
+                            @Nullable String updatedBy, @Nullable Long expiresAtMs);
+
     boolean clearUserPermission(@NotNull UUID userUuid, @NotNull String key);
+
+    /* --- access requests ----------------------------------------------- */
+
+    /** Insert a PENDING request; returns the new id. */
+    long createPermissionRequest(@NotNull UUID requesterUuid, @NotNull String requesterName,
+                                 @NotNull String permissionKey, @Nullable String justification);
+
+    @NotNull Optional<de.eternal.core.model.PermissionRequest> findPermissionRequest(long id);
+
+    /** All requests with the given status, newest first; {@code null} = all. */
+    @NotNull List<de.eternal.core.model.PermissionRequest> listPermissionRequests(
+            @Nullable de.eternal.core.model.PermissionRequest.Status status);
+
+    /** This user's own requests, newest first. */
+    @NotNull List<de.eternal.core.model.PermissionRequest> myPermissionRequests(@NotNull UUID requesterUuid);
+
+    /** True if the user already has a PENDING request for this exact key. */
+    boolean hasPendingRequest(@NotNull UUID requesterUuid, @NotNull String permissionKey);
+
+    /** Records the decision on a PENDING request (APPROVED/DENIED). {@code expiresAtMs}
+     *  is stored for audit on approvals. Returns true if a pending row matched. */
+    boolean decidePermissionRequest(long id, @NotNull UUID byUuid, @NotNull String byName,
+                                    @NotNull de.eternal.core.model.PermissionRequest.Status status,
+                                    @Nullable String note, @Nullable Long expiresAtMs);
+
+    /** Deletes expired user-permission grants and flips their APPROVED requests
+     *  to EXPIRED. Returns the number of grants removed. */
+    int sweepExpiredUserGrants();
 }

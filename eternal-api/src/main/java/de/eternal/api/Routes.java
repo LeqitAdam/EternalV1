@@ -98,6 +98,14 @@ public final class Routes {
         app.get("/reports/{id}/chat", this::reportChat);
         app.get("/stats", this::stats);
 
+        // --- self-service access requests (team: eternal.team) -------------
+        app.get("/me/permission-requests", this::myPermissionRequests);
+        app.post("/me/permission-requests", this::createPermissionRequest);
+        // admin queue + decisions (eternal.web.admin)
+        app.get("/admin/permission-requests", this::listPermissionRequests);
+        app.post("/admin/permission-requests/{id}/approve", this::approvePermissionRequest);
+        app.post("/admin/permission-requests/{id}/deny", this::denyPermissionRequest);
+
         // --- chat-logs + social-spy ----------------------------------------
         // Read access gated per-permission so admins can scope who sees the
         // network-wide chat history; sensitive (login/register/...) lives
@@ -134,20 +142,38 @@ public final class Routes {
      * can't accidentally leak credentials.
      */
     private void adminActiveSessions(@NotNull io.javalin.http.Context ctx) {
-        auth.requireAdmin(ctx);
-        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        auth.requirePermission(ctx, "eternal.web.admin");
+        // A user can hold several valid tokens at once (repeated logins / multiple
+        // tabs), which previously showed them once per session. Collapse to one
+        // row per UUID: keep the earliest login as "since" and the latest expiry.
+        // `group` carries the real CloudNet rank (e.g. Owner) so the UI can show
+        // the actual rank instead of the coarse ADMIN/MOD/PLAYER session role.
+        java.util.Map<UUID, Map<String, Object>> byUser = new LinkedHashMap<>();
         for (var s : storage.listActiveSessions()) {
+            Map<String, Object> existing = byUser.get(s.userUuid());
+            if (existing != null) {
+                long c = ((Number) existing.get("createdAt")).longValue();
+                long e = ((Number) existing.get("expiresAt")).longValue();
+                existing.put("createdAt", Math.min(c, s.createdAt().toEpochMilli()));
+                existing.put("expiresAt", Math.max(e, s.expiresAt().toEpochMilli()));
+                continue;
+            }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("userUuid", s.userUuid().toString());
             m.put("userName", s.userName());
-            m.put("role", s.role());
+            // Legacy role gone — surface a permission-derived staff flag so the
+            // UI can still split Staff vs Players. `group` (below) shows the
+            // actual CloudNet rank.
+            m.put("staff", auth.can(new Auth.Principal(s.userName(), s.userUuid(), false), "eternal.web.dashboard"));
             m.put("createdAt", s.createdAt().toEpochMilli());
             m.put("expiresAt", s.expiresAt().toEpochMilli());
-            storage.findProfile(s.userUuid())
-                    .ifPresent(p -> m.put("lastDisplayName", p.lastDisplayName()));
-            out.add(m);
+            storage.findProfile(s.userUuid()).ifPresent(p -> {
+                m.put("lastDisplayName", p.lastDisplayName());
+                m.put("group", p.lastGroupName());
+            });
+            byUser.put(s.userUuid(), m);
         }
-        ctx.json(out);
+        ctx.json(new java.util.ArrayList<>(byUser.values()));
     }
 
     /* --- auth / link flow ---------------------------------------------- */
@@ -190,22 +216,19 @@ public final class Routes {
             ctx.json(Map.of("error", "link confirmed without identity"));
             return;
         }
-        // Role-assignment based on stored tier (see api.yml -> roles).
-        int tier = storage.findProfile(uuid).map(p -> p.lastTier()).orElse(0);
-        String role;
-        if (tier >= config.roles().adminTierThreshold()) role = "ADMIN";
-        else if (tier >= config.roles().staffTierThreshold()) role = "MOD";
-        else role = "PLAYER";
+        // No more legacy role assignment — authorization is permission-based.
+        // The session just identifies the user; capabilities resolve per-request
+        // from their CloudNet group/role grants.
         String sessionToken = generateToken();
         Instant created = Instant.now();
         Instant expires = created.plusSeconds(config.session().ttlSeconds());
-        storage.createSession(new Session(sessionToken, uuid, name, role, created, expires));
+        storage.createSession(new Session(sessionToken, uuid, name, created, expires));
         storage.markLinkConsumed(token);
 
         ctx.json(Map.of(
                 "status", "CONFIRMED",
                 "sessionToken", sessionToken,
-                "user", Map.of("uuid", uuid.toString(), "name", name, "role", role),
+                "user", Map.of("uuid", uuid.toString(), "name", name),
                 "expiresAt", expires.toEpochMilli()
         ));
     }
@@ -237,11 +260,18 @@ public final class Routes {
 
     private void me(@NotNull Context ctx) {
         var p = auth.require(ctx);
-        ctx.json(Map.of(
-                "name", p.name(),
-                "role", p.role(),
-                "uuid", p.uuid() == null ? null : p.uuid().toString()
-        ));
+        // Legacy role is gone — expose the effective permission keys instead so
+        // the dashboard can gate UI by capability (eternal.web.admin etc.).
+        // Honours wildcards: an Owner with `*` gets every registered key here.
+        java.util.List<String> allKeys = new java.util.ArrayList<>();
+        for (var cat : auth.permissions().registry().byCategory().values()) {
+            for (var e : cat) allKeys.add(e.key());
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("name", p.name());
+        out.put("uuid", p.uuid() == null ? null : p.uuid().toString());
+        out.put("permissions", auth.capabilities(p, allKeys));
+        ctx.json(out);
     }
 
     private void myPunishments(@NotNull Context ctx) {
@@ -259,20 +289,20 @@ public final class Routes {
     }
 
     private void stats(@NotNull Context ctx) {
-        var p = auth.requireStaff(ctx);
+        var p = auth.requirePermission(ctx, "eternal.web.dashboard");
         var all = storage.staffStats();
-        if (p.isAdmin()) { ctx.json(all); return; }
+        if (auth.can(p, "eternal.web.admin")) { ctx.json(all); return; }
         if (p.uuid() == null) { ctx.json(List.of()); return; }
         ctx.json(all.stream().filter(s -> s.staffUuid().equals(p.uuid())).toList());
     }
 
     private void lookupPlayer(@NotNull Context ctx) {
-        var caller = auth.requireStaff(ctx);
+        var caller = auth.requirePermission(ctx, "eternal.web.player.view");
         String name = ctx.pathParam("name");
         var profile = storage.findProfileByName(name)
                 .orElseThrow(() -> new NotFoundResponse("player not seen"));
 
-        if (!caller.isAdmin() && tierOf(caller) <= profile.lastTier()) {
+        if (tierOf(caller) <= profile.lastTier()) {
             ctx.status(HttpStatus.FORBIDDEN);
             ctx.json(Map.of("error", "blocked by tier"));
             return;
@@ -331,11 +361,11 @@ public final class Routes {
     }
 
     private void playerHistory(@NotNull Context ctx) {
-        var caller = auth.requireStaff(ctx);
+        var caller = auth.requirePermission(ctx, "eternal.web.player.view");
         String name = ctx.pathParam("name");
         var profile = storage.findProfileByName(name)
                 .orElseThrow(() -> new NotFoundResponse("player not seen"));
-        if (!caller.isAdmin() && tierOf(caller) <= profile.lastTier()) {
+        if (tierOf(caller) <= profile.lastTier()) {
             ctx.status(HttpStatus.FORBIDDEN);
             ctx.json(Map.of("error", "blocked by tier"));
             return;
@@ -346,7 +376,7 @@ public final class Routes {
     /* --- bans / mutes -------------------------------------------------- */
 
     private void listActiveBans(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.dashboard");
         var bans = storage.findAllActive(PunishmentType.BAN);
         ctx.json(Map.of(
                 "bans", bans,
@@ -354,7 +384,7 @@ public final class Routes {
     }
 
     private void listActiveMutes(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.dashboard");
         ctx.json(storage.findAllActive(PunishmentType.MUTE));
     }
 
@@ -368,7 +398,7 @@ public final class Routes {
      *  configured appeal-shortening templates so the appeals dialog can
      *  pre-fill the message + duration. */
     private void listReasons(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.dashboard");
         java.util.List<Map<String, Object>> reasonRows = new java.util.ArrayList<>();
         for (var r : reasons.all()) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -400,14 +430,14 @@ public final class Routes {
         // bans (reason marked admin: true in reasons.yml) need a full admin
         // principal. Resolve the reason via the punishment's reason_id —
         // numeric ids match an entry in ReasonsConfig.
-        var p = auth.requireStaff(ctx);
+        var p = auth.requirePermission(ctx, "eternal.unban");
         long id = parseLong(ctx, "id");
         var punishment = storage.findPunishmentById(id).orElseThrow(NotFoundResponse::new);
         try {
             int rid = Integer.parseInt(punishment.reasonId());
             var reason = reasons.byId(rid);
-            if (reason != null && reason.adminOnly() && !p.isAdmin()) {
-                throw new io.javalin.http.ForbiddenResponse("admin-only ban — requires admin role");
+            if (reason != null && reason.adminOnly() && !auth.can(p, "eternal.unban.admin")) {
+                throw new io.javalin.http.ForbiddenResponse("admin-only ban — requires eternal.unban.admin");
             }
         } catch (NumberFormatException ignored) { /* legacy non-numeric reason id */ }
 
@@ -439,7 +469,7 @@ public final class Routes {
     /* --- reports ------------------------------------------------------- */
 
     private void listReports(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.report.handle");
         String statusParam = ctx.queryParam("status"); // open | claimed | closed | active | all
         int limit = parseIntOr(ctx.queryParam("limit"), 100);
         int offset = parseIntOr(ctx.queryParam("offset"), 0);
@@ -469,13 +499,13 @@ public final class Routes {
     }
 
     private void getReport(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.report.handle");
         long id = parseLong(ctx, "id");
         ctx.json(storage.findReport(id).orElseThrow(NotFoundResponse::new));
     }
 
     private void claimReport(@NotNull Context ctx) {
-        var p = auth.requireStaff(ctx);
+        var p = auth.requirePermission(ctx, "eternal.report.handle");
         if (p.uuid() == null) {
             ctx.status(HttpStatus.BAD_REQUEST);
             ctx.json(Map.of("error", "api key has no associated uuid — cannot claim"));
@@ -489,7 +519,7 @@ public final class Routes {
 
     @SuppressWarnings("unchecked")
     private void closeReport(@NotNull Context ctx) {
-        var caller = auth.requireStaff(ctx);
+        var caller = auth.requirePermission(ctx, "eternal.report.handle");
         long id = parseLong(ctx, "id");
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         String resolution = body == null ? "closed via API"
@@ -525,7 +555,7 @@ public final class Routes {
 
     /** Web -> Ingame: queue a teleport for the calling mod to the report's target. */
     private void teleportToReport(@NotNull Context ctx) {
-        var p = auth.requireStaff(ctx);
+        var p = auth.requirePermission(ctx, "eternal.report.handle");
         if (p.uuid() == null) {
             ctx.status(HttpStatus.BAD_REQUEST);
             ctx.json(Map.of("error", "api key has no associated uuid — cannot teleport"));
@@ -616,7 +646,7 @@ public final class Routes {
      * <pre>[{day, sessions:[{startedAt, endedAt, messageCount, messages:[ChatLogEntry...]}]}]</pre>
      */
     private void playerChatSessions(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.player.view");
         String name = ctx.pathParam("name");
         var profile = storage.findProfileByName(name)
                 .orElseThrow(() -> new NotFoundResponse("player not seen"));
@@ -706,24 +736,33 @@ public final class Routes {
      * Shape: {items: ChatLogEntry[], anchorAt: number, finalized: boolean}.
      */
     private void reportChat(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.player.view");
         long id = parseLong(ctx, "id");
         ReportEntry report = storage.findReport(id).orElseThrow(NotFoundResponse::new);
         long anchorMs = report.createdAt().toEpochMilli();
 
-        // Already finalized — parse the frozen JSON snapshot back and return.
+        // Already finalized — parse the frozen JSON snapshot back and return,
+        // UNLESS it's a stale snapshot from the old unbounded query (every line
+        // sits outside the ±WINDOW_MS context window — e.g. an old report that
+        // grabbed today's chat). In that case drop it and recompute below so it
+        // re-freezes correctly.
         String frozen = report.chatHistory();
         if (frozen != null && !frozen.isBlank()) {
             java.lang.reflect.Type listType =
                     new com.google.gson.reflect.TypeToken<List<de.eternal.core.model.ChatLogEntry>>() {}.getType();
             List<de.eternal.core.model.ChatLogEntry> parsed = Json.GSON.fromJson(frozen, listType);
             if (parsed == null) parsed = List.of();
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("items", parsed);
-            out.put("anchorAt", anchorMs);
-            out.put("finalized", true);
-            ctx.json(out);
-            return;
+            boolean withinWindow = parsed.isEmpty() || parsed.stream().anyMatch(
+                    e -> Math.abs(e.createdAt().toEpochMilli() - anchorMs) <= WINDOW_MS);
+            if (withinWindow) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("items", parsed);
+                out.put("anchorAt", anchorMs);
+                out.put("finalized", true);
+                ctx.json(out);
+                return;
+            }
+            // stale — fall through to recompute + re-freeze
         }
 
         if (!(storage instanceof de.eternal.core.chatlog.ChatLogStorage cl)) {
@@ -735,8 +774,11 @@ public final class Routes {
             return;
         }
 
+        // Bound the window to ±WINDOW_MS around the anchor so an old report
+        // whose anchor sits in a chat-less gap returns an empty/short context
+        // instead of grabbing the nearest messages that exist days later.
         List<de.eternal.core.model.ChatLogEntry> items =
-                cl.findChatAround(report.serverName(), anchorMs, BEFORE, AFTER);
+                cl.findChatAround(report.serverName(), anchorMs, BEFORE, AFTER, WINDOW_MS);
         boolean finalized = (System.currentTimeMillis() - anchorMs) >= WINDOW_MS;
         if (finalized) {
             // Freeze the snapshot so subsequent reads are stable + cheap.
@@ -859,7 +901,7 @@ public final class Routes {
     }
 
     private void listAppeals(@NotNull Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.dashboard");
         String statusParam = ctx.queryParam("status");
         UnbanAppeal.Status status = statusParam == null
                 ? UnbanAppeal.Status.PENDING
@@ -869,7 +911,7 @@ public final class Routes {
 
     @SuppressWarnings("unchecked")
     private void approveAppeal(@NotNull Context ctx) {
-        var p = auth.requireAdmin(ctx);
+        var p = auth.requirePermission(ctx, "eternal.web.appeals.decide");
         long id = parseLong(ctx, "id");
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         String reason = body == null ? "Antrag bestaetigt"
@@ -887,7 +929,7 @@ public final class Routes {
 
     @SuppressWarnings("unchecked")
     private void denyAppeal(@NotNull Context ctx) {
-        var p = auth.requireAdmin(ctx);
+        var p = auth.requirePermission(ctx, "eternal.web.appeals.decide");
         long id = parseLong(ctx, "id");
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         String reason = body == null ? "Antrag abgelehnt"
@@ -913,7 +955,9 @@ public final class Routes {
      */
     @SuppressWarnings("unchecked")
     private void shortenAppeal(@NotNull io.javalin.http.Context ctx) {
-        var p = auth.requireStaff(ctx);
+        // Shorten stays available to general staff (no admin needed) — same
+        // intent as the old requireStaff; approve/deny are the admin-scoped ones.
+        var p = auth.requirePermission(ctx, "eternal.web.dashboard");
         long id = parseLong(ctx, "id");
         Map<String, Object> body = ctx.bodyAsClass(Map.class);
         if (body == null) throw new BadRequestResponse("missing body");
@@ -974,7 +1018,7 @@ public final class Routes {
      * AND uuid-prefix (case-insensitive). Up to 10 results.
      */
     private void searchPlayers(@NotNull io.javalin.http.Context ctx) {
-        auth.requireStaff(ctx);
+        auth.requirePermission(ctx, "eternal.web.player.view");
         String q = ctx.queryParam("q");
         if (q == null || q.trim().length() < 2) {
             ctx.json(java.util.List.of());
@@ -999,7 +1043,7 @@ public final class Routes {
 
     @SuppressWarnings("unchecked")
     private void banFromReport(@NotNull Context ctx) {
-        var p = auth.requireStaff(ctx);
+        var p = auth.requirePermission(ctx, "eternal.ban");
         if (p.uuid() == null) throw new BadRequestResponse("api-key has no uuid");
         long reportId = parseLong(ctx, "id");
         ReportEntry report = storage.findReport(reportId).orElseThrow(NotFoundResponse::new);
@@ -1085,7 +1129,7 @@ public final class Routes {
      */
     @SuppressWarnings("unchecked")
     private void muteFromReport(@NotNull Context ctx) {
-        var p = auth.requireStaff(ctx);
+        var p = auth.requirePermission(ctx, "eternal.mute");
         if (p.uuid() == null) throw new BadRequestResponse("api-key has no uuid");
         long reportId = parseLong(ctx, "id");
         ReportEntry report = storage.findReport(reportId).orElseThrow(NotFoundResponse::new);
@@ -1153,10 +1197,133 @@ public final class Routes {
         ctx.json(Map.of("ok", true));
     }
 
+    /* =====================================================================
+     * Self-service access requests
+     *  - Team members (eternal.team) order single permissions for themselves.
+     *  - Admins (eternal.web.admin) approve (→ personal user-override grant,
+     *    optionally expiring) or deny.
+     * ===================================================================== */
+
+    /** GET /me/permission-requests — the caller's own requests + the requestable
+     *  catalogue (every registry key with held/pending flags). */
+    private void myPermissionRequests(@NotNull Context ctx) {
+        var p = auth.requirePermission(ctx, "eternal.team");
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("requests", p.uuid() == null ? List.of() : permStorage().myPermissionRequests(p.uuid()));
+        java.util.List<Map<String, Object>> cat = new java.util.ArrayList<>();
+        for (var entry : auth.permissions().registry().byCategory().entrySet()) {
+            for (var e : entry.getValue()) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("key", e.key());
+                m.put("label", e.label());
+                m.put("description", e.description());
+                m.put("category", entry.getKey());
+                m.put("held", auth.can(p, e.key()));
+                m.put("pending", p.uuid() != null && permStorage().hasPendingRequest(p.uuid(), e.key()));
+                cat.add(m);
+            }
+        }
+        out.put("catalogue", cat);
+        ctx.json(out);
+    }
+
+    /** POST /me/permission-requests {permissionKey, justification?} */
+    @SuppressWarnings("unchecked")
+    private void createPermissionRequest(@NotNull Context ctx) {
+        var p = auth.requirePermission(ctx, "eternal.team");
+        if (p.uuid() == null) throw new BadRequestResponse("api-key has no uuid — cannot request");
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        if (body == null) throw new BadRequestResponse("body required");
+        String key = String.valueOf(body.getOrDefault("permissionKey", "")).trim();
+        if (key.isEmpty() || !auth.permissions().registry().knows(key)) {
+            throw new BadRequestResponse("unknown permission key");
+        }
+        if (auth.can(p, key)) throw new BadRequestResponse("you already hold this permission");
+        if (permStorage().hasPendingRequest(p.uuid(), key)) {
+            throw new BadRequestResponse("you already have a pending request for this permission");
+        }
+        Object j = body.get("justification");
+        String justification = j == null ? null : String.valueOf(j).trim();
+        if (justification != null && justification.isEmpty()) justification = null;
+        long id = permStorage().createPermissionRequest(p.uuid(), p.name(), key, justification);
+        ctx.json(Map.of("ok", true, "id", id));
+    }
+
+    /** GET /admin/permission-requests?status=pending|all — the decision queue. */
+    private void listPermissionRequests(@NotNull Context ctx) {
+        auth.requirePermission(ctx, "eternal.web.admin");
+        permStorage().sweepExpiredUserGrants(); // self-heal expired grants/requests on view
+        String statusParam = ctx.queryParam("status");
+        de.eternal.core.model.PermissionRequest.Status status =
+                (statusParam == null || statusParam.equalsIgnoreCase("pending"))
+                        ? de.eternal.core.model.PermissionRequest.Status.PENDING
+                        : statusParam.equalsIgnoreCase("all") ? null
+                        : de.eternal.core.model.PermissionRequest.Status.valueOf(statusParam.toUpperCase());
+        var requests = permStorage().listPermissionRequests(status);
+        Map<String, String> names = new LinkedHashMap<>();
+        for (var r : requests) {
+            storage.findProfile(r.requesterUuid()).ifPresent(pp -> {
+                if (!pp.lastDisplayName().isBlank()) names.put(r.requesterUuid().toString(), pp.lastDisplayName());
+            });
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("requests", requests);
+        out.put("displayNames", names);
+        ctx.json(out);
+    }
+
+    /** POST /admin/permission-requests/{id}/approve {durationSeconds?, note?} */
+    @SuppressWarnings("unchecked")
+    private void approvePermissionRequest(@NotNull Context ctx) {
+        var caller = auth.requirePermission(ctx, "eternal.web.admin");
+        long id = parseLong(ctx, "id");
+        var req = permStorage().findPermissionRequest(id).orElseThrow(NotFoundResponse::new);
+        if (req.status() != de.eternal.core.model.PermissionRequest.Status.PENDING) {
+            throw new BadRequestResponse("request not pending");
+        }
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        long durationSec = body != null && body.get("durationSeconds") instanceof Number n ? n.longValue() : -1L;
+        String note = body == null || body.get("note") == null ? null : String.valueOf(body.get("note"));
+        Long expiresAtMs = durationSec > 0 ? System.currentTimeMillis() + durationSec * 1000L : null;
+        // Grant as a personal user-override for the requester + push into
+        // CloudPerms so it applies in-game. (Expiring grants are removed from
+        // CloudPerms again by the sweep when they lapse.)
+        permStorage().setUserPermission(req.requesterUuid(), req.permissionKey(), true, caller.name(), expiresAtMs);
+        queueCloudPermsUser(req.requesterUuid(), req.permissionKey(), true, false);
+        permStorage().decidePermissionRequest(id, callerUuid(caller), caller.name(),
+                de.eternal.core.model.PermissionRequest.Status.APPROVED, note, expiresAtMs);
+        ctx.json(Map.of("ok", true));
+    }
+
+    /** POST /admin/permission-requests/{id}/deny {note?} */
+    @SuppressWarnings("unchecked")
+    private void denyPermissionRequest(@NotNull Context ctx) {
+        var caller = auth.requirePermission(ctx, "eternal.web.admin");
+        long id = parseLong(ctx, "id");
+        var req = permStorage().findPermissionRequest(id).orElseThrow(NotFoundResponse::new);
+        if (req.status() != de.eternal.core.model.PermissionRequest.Status.PENDING) {
+            throw new BadRequestResponse("request not pending");
+        }
+        Map<String, Object> body = ctx.bodyAsClass(Map.class);
+        String note = body == null || body.get("note") == null ? null : String.valueOf(body.get("note"));
+        permStorage().decidePermissionRequest(id, callerUuid(caller), caller.name(),
+                de.eternal.core.model.PermissionRequest.Status.DENIED, note, null);
+        ctx.json(Map.of("ok", true));
+    }
+
+    /** Non-null UUID for the decider — full-access API keys have none, so a
+     *  zero sentinel keeps the audit column populated. */
+    private static @NotNull UUID callerUuid(@NotNull Auth.Principal p) {
+        return p.uuid() != null ? p.uuid() : new UUID(0L, 0L);
+    }
+
     /* --- helpers ------------------------------------------------------- */
 
+    /** Caller's rank tier for the lookup/history tier-protection. Holders of
+     *  {@code eternal.bypass} (and full-access API keys) ignore the protection
+     *  entirely; otherwise the caller's CloudNet sortId from their profile. */
     private int tierOf(@NotNull Auth.Principal p) {
-        if (p.isAdmin()) return Integer.MAX_VALUE;
+        if (auth.can(p, "eternal.bypass")) return Integer.MAX_VALUE;
         if (p.uuid() == null) return 0;
         return storage.findProfile(p.uuid()).map(pp -> pp.lastTier()).orElse(0);
     }
@@ -1181,9 +1348,7 @@ public final class Routes {
     /* =====================================================================
      * Permission-engine endpoints
      * All gated through eternal.web.admin so admins can keep mods out of
-     * the role-and-permission editor itself. The legacy requireAdmin
-     * stays in place underneath as a belt-and-braces check until the
-     * frontend can rely on the registry-driven gate.
+     * the role-and-permission editor itself.
      * ===================================================================== */
 
     private void permissionRegistry(@NotNull Context ctx) {
@@ -1273,6 +1438,7 @@ public final class Routes {
         boolean granted = body != null && Boolean.TRUE.equals(body.get("granted"));
         permStorage().setRolePermission(role, key, granted, caller.name());
         queueRolePermRefresh(role);
+        queueCloudPermsGroup(role, key, granted, false);
         ctx.json(Map.of("ok", true));
     }
 
@@ -1282,6 +1448,7 @@ public final class Routes {
         String key = ctx.pathParam("key");
         boolean removed = permStorage().clearRolePermission(role, key);
         queueRolePermRefresh(role);
+        queueCloudPermsGroup(role, key, false, true);
         ctx.json(Map.of("ok", true, "cleared", removed));
     }
 
@@ -1325,6 +1492,7 @@ public final class Routes {
         boolean granted = body != null && Boolean.TRUE.equals(body.get("granted"));
         permStorage().setUserPermission(uuid, key, granted, caller.name());
         queueUserPermRefresh(uuid);
+        queueCloudPermsUser(uuid, key, granted, false);
         ctx.json(Map.of("ok", true));
     }
 
@@ -1336,6 +1504,7 @@ public final class Routes {
         String key = ctx.pathParam("key");
         boolean removed = permStorage().clearUserPermission(uuid, key);
         queueUserPermRefresh(uuid);
+        queueCloudPermsUser(uuid, key, false, true);
         ctx.json(Map.of("ok", true, "cleared", removed));
     }
 
@@ -1357,6 +1526,27 @@ public final class Routes {
         storage.queueAction("PERM_REFRESH_REQUEST",
                 new UUID(0L, 0L), Json.GSON.toJson(Map.of(
                         "scope", "role", "role", roleName)));
+    }
+
+    /** Push a role grant into the CloudNet GROUP so it resolves in-game
+     *  (CloudPerms owns the permissible — the Bukkit attachment is ignored
+     *  under CloudPerms). No-op for web-only roles with no mapped group. */
+    private void queueCloudPermsGroup(@NotNull String roleName, @NotNull String key,
+                                      boolean granted, boolean clear) {
+        String mcGroup = permStorage().findRole(roleName)
+                .map(de.eternal.core.model.Role::mcGroupName).orElse(null);
+        if (mcGroup == null || mcGroup.isEmpty()) return;
+        storage.queueAction("CLOUDPERMS_WRITE", new UUID(0L, 0L), Json.GSON.toJson(Map.of(
+                "scope", "group", "group", mcGroup, "key", key,
+                "granted", granted, "clear", clear)));
+    }
+
+    /** Push a user override into the CloudNet USER. */
+    private void queueCloudPermsUser(@NotNull UUID uuid, @NotNull String key,
+                                     boolean granted, boolean clear) {
+        storage.queueAction("CLOUDPERMS_WRITE", uuid, Json.GSON.toJson(Map.of(
+                "scope", "user", "uuid", uuid.toString(), "key", key,
+                "granted", granted, "clear", clear)));
     }
 
     /** SqlStorage implements both interfaces, so we cast for the call
