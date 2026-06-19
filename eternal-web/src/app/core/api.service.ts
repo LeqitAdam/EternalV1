@@ -4,8 +4,8 @@ import { Observable } from 'rxjs';
 import { API_CONFIG } from './api.config';
 import {
   AdminUser, ChatLogPage, ChatSessionDay, LinkInit, LinkStatus, Me, PermissionRegistry,
-  PlayerLookup, Punishment, Report, ReportChat, ReportPage, ReportStatusFilter, Role,
-  StaffStat, UnbanAppeal
+  PermissionRequest, PlayerLookup, Punishment, Report, ReportChat, ReportPage,
+  ReportStatusFilter, RequestablePermission, Role, StaffStat, UnbanAppeal
 } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -30,6 +30,30 @@ export class ApiService {
     return this.http.get<Me>(this.url('/me'));
   }
 
+  /* --- access requests (self-service) -------------------------------- */
+
+  /** Team view: my requests + the requestable catalogue. */
+  myPermissionRequests(): Observable<{ requests: PermissionRequest[]; catalogue: RequestablePermission[] }> {
+    return this.http.get<{ requests: PermissionRequest[]; catalogue: RequestablePermission[] }>(
+      this.url('/me/permission-requests'));
+  }
+  createPermissionRequest(permissionKey: string, justification?: string): Observable<{ ok: boolean; id: number }> {
+    return this.http.post<{ ok: boolean; id: number }>(
+      this.url('/me/permission-requests'), { permissionKey, justification });
+  }
+  /** Admin queue. status: 'pending' (default) | 'all'. */
+  adminPermissionRequests(status: 'pending' | 'all' = 'pending'):
+      Observable<{ requests: PermissionRequest[]; displayNames: Record<string, string> }> {
+    return this.http.get<{ requests: PermissionRequest[]; displayNames: Record<string, string> }>(
+      this.url(`/admin/permission-requests?status=${status}`));
+  }
+  approvePermissionRequest(id: number, body: { durationSeconds?: number; note?: string }): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(this.url(`/admin/permission-requests/${id}/approve`), body);
+  }
+  denyPermissionRequest(id: number, note?: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(this.url(`/admin/permission-requests/${id}/deny`), { note });
+  }
+
   /* --- data ----------------------------------------------------------- */
 
   bans(): Observable<{ bans: Punishment[]; displayNames: Record<string, string> }> {
@@ -42,13 +66,14 @@ export class ApiService {
   }
   stats(): Observable<StaffStat[]> { return this.http.get<StaffStat[]>(this.url('/stats')); }
 
-  /** Admin-only: lists everyone whose web token is still valid. Returns
-   *  ADMIN/MOD/PLAYER rows with the rank-coloured DisplayName cached at
-   *  last in-game join. */
+  /** Admin-only: lists everyone whose web token is still valid (deduped per
+   *  user). `staff` is permission-derived (has eternal.web.dashboard); `group`
+   *  is the real CloudNet rank shown with the rank-coloured DisplayName. */
   adminActiveSessions(): Observable<Array<{
     userUuid: string;
     userName: string;
-    role: 'ADMIN' | 'MOD' | 'PLAYER';
+    staff: boolean;
+    group?: string;
     createdAt: number;
     expiresAt: number;
     lastDisplayName?: string;
@@ -56,7 +81,8 @@ export class ApiService {
     return this.http.get<Array<{
       userUuid: string;
       userName: string;
-      role: 'ADMIN' | 'MOD' | 'PLAYER';
+      staff: boolean;
+      group?: string;
       createdAt: number;
       expiresAt: number;
       lastDisplayName?: string;

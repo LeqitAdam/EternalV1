@@ -22,39 +22,45 @@ import { ApiService } from '../../core/api.service';
           <a routerLink="/me" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
             <mat-icon>person</mat-icon><span>Mein Konto</span>
           </a>
-          <ng-container *ngIf="isStaff()">
-            <a routerLink="/dashboard" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>dashboard</mat-icon><span>Übersicht</span>
+          <a *ngIf="auth.hasPerm('eternal.team')" routerLink="/access-requests"
+             routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>add_moderator</mat-icon><span>Rechte bestellen</span>
+          </a>
+          <!-- Each item gates on its own permission so e.g. eternal.report.handle
+               alone reveals Reports — no coarse "is staff" lump. -->
+          <a *ngIf="auth.hasPerm('eternal.web.dashboard')" routerLink="/dashboard" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>dashboard</mat-icon><span>Übersicht</span>
+          </a>
+          <a *ngIf="auth.hasPerm('eternal.report.handle')" routerLink="/reports" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>report</mat-icon><span>Reports</span>
+          </a>
+          <a *ngIf="auth.hasPerm('eternal.web.dashboard')" routerLink="/bans" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>gavel</mat-icon><span>Aktive Strafen</span>
+          </a>
+          <a *ngIf="auth.hasPerm('eternal.web.player.view')" routerLink="/players" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>person_search</mat-icon><span>Spieler</span>
+          </a>
+          <a *ngIf="auth.hasPerm('eternal.web.chatlogs')" routerLink="/chat-logs" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>forum</mat-icon><span>Chat-Logs</span>
+          </a>
+          <a *ngIf="auth.hasPerm('eternal.web.dashboard')" routerLink="/appeals" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>contact_support</mat-icon><span>Entbannungsanträge</span>
+          </a>
+          <a *ngIf="auth.hasPerm('eternal.web.admin')" routerLink="/active-users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+            <mat-icon>groups</mat-icon><span>Aktive User</span>
+          </a>
+          <!-- Admin section divider + permission / user management. -->
+          <ng-container *ngIf="auth.hasPerm('eternal.web.admin')">
+            <div class="px-3 pt-4 pb-1 text-xs uppercase tracking-wide text-ink-400">Administration</div>
+            <a routerLink="/admin/users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+              <mat-icon>manage_accounts</mat-icon><span>Benutzer &amp; Ränge</span>
             </a>
-            <a routerLink="/reports" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>report</mat-icon><span>Reports</span>
+            <a routerLink="/admin/permissions" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+              <mat-icon>security</mat-icon><span>Rollen &amp; Rechte</span>
             </a>
-            <a routerLink="/bans" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>gavel</mat-icon><span>Aktive Bans</span>
+            <a routerLink="/admin/permission-requests" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
+              <mat-icon>inbox</mat-icon><span>Rechte-Anfragen</span>
             </a>
-            <a routerLink="/players" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>person_search</mat-icon><span>Spieler</span>
-            </a>
-            <a routerLink="/chat-logs" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>forum</mat-icon><span>Chat-Logs</span>
-            </a>
-            <a routerLink="/appeals" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>contact_support</mat-icon><span>Entbannungsanträge</span>
-            </a>
-            <!-- Admin-only: shows who is currently logged in to the dashboard. -->
-            <a *ngIf="isAdmin()" routerLink="/active-users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-              <mat-icon>groups</mat-icon><span>Aktive User</span>
-            </a>
-            <!-- Admin section divider + permission / user management. -->
-            <ng-container *ngIf="isAdmin()">
-              <div class="px-3 pt-4 pb-1 text-xs uppercase tracking-wide text-ink-400">Administration</div>
-              <a routerLink="/admin/users" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-                <mat-icon>manage_accounts</mat-icon><span>Benutzer &amp; Ränge</span>
-              </a>
-              <a routerLink="/admin/permissions" routerLinkActive="bg-ink-700 text-eternal-300" class="nav-item">
-                <mat-icon>security</mat-icon><span>Rollen &amp; Rechte</span>
-              </a>
-            </ng-container>
           </ng-container>
         </nav>
 
@@ -65,7 +71,6 @@ import { ApiService } from '../../core/api.service';
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-sm font-medium truncate">{{ auth.me()?.name }}</div>
-              <div class="text-xs text-ink-300">{{ auth.me()?.role }}</div>
             </div>
             <button mat-icon-button (click)="logout()" matTooltip="Logout">
               <mat-icon>logout</mat-icon>
@@ -94,17 +99,24 @@ export class ShellComponent {
   readonly auth = inject(AuthService);
   private readonly api = inject(ApiService);
 
+  constructor() {
+    // Re-fetch /me on every app load so permission changes (e.g. a freshly
+    // granted eternal.team) take effect on reload — not only after a re-login.
+    if (this.auth.isAuthenticated()) {
+      this.api.me().subscribe({ next: me => this.auth.updateMe(me), error: () => {} });
+    }
+  }
+
   initial() {
     return (this.auth.me()?.name?.[0] ?? '?').toUpperCase();
   }
 
   isStaff() {
-    const role = this.auth.me()?.role;
-    return role === 'MOD' || role === 'ADMIN';
+    return this.auth.isStaff();
   }
 
   isAdmin() {
-    return this.auth.me()?.role === 'ADMIN';
+    return this.auth.isAdmin();
   }
 
   logout() {

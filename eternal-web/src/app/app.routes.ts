@@ -1,7 +1,8 @@
 import { Routes } from '@angular/router';
 import { authGuard, anonGuard } from './core/auth.guard';
-import { adminGuard, staffGuard } from './core/role.guard';
-// adminGuard + staffGuard both used below.
+import { permGuard } from './core/role.guard';
+import { teamGuard } from './core/team.guard';
+// permGuard reads the required permission from each route's data.perm.
 
 export const routes: Routes = [
   {
@@ -41,59 +42,65 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/appeal/appeal.component').then(m => m.AppealComponent)
       },
       {
+        // Self-service: team members (eternal.team) order permissions.
+        path: 'access-requests',
+        canActivate: [teamGuard],
+        loadComponent: () => import('./pages/access-requests/access-requests.component').then(m => m.AccessRequestsComponent)
+      },
+      {
         path: 'dashboard',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.dashboard' },
         loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent)
       },
       {
         path: 'reports',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.report.handle' },
         loadComponent: () => import('./pages/reports/reports.component').then(m => m.ReportsComponent)
       },
       {
         path: 'bans',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.dashboard' },
         loadComponent: () => import('./pages/bans/bans.component').then(m => m.BansComponent)
       },
       {
         path: 'players',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.player.view' },
         loadComponent: () => import('./pages/players/players.component').then(m => m.PlayersComponent)
       },
       {
         path: 'chat-logs',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.chatlogs' },
         loadComponent: () => import('./pages/chat-logs/chat-logs.component').then(m => m.ChatLogsComponent)
       },
       {
         path: 'players/:name',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.player.view' },
         loadComponent: () => import('./pages/players/player-detail.component').then(m => m.PlayerDetailComponent)
       },
       {
         path: 'appeals',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.dashboard' },
         loadComponent: () => import('./pages/appeals/appeals.component').then(m => m.AppealsComponent)
       },
       {
-        // Admin-only — also gated server-side by auth.requireAdmin.
         path: 'active-users',
-        canActivate: [staffGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.admin' },
         loadComponent: () => import('./pages/active-users/active-users.component').then(m => m.ActiveUsersComponent)
       },
       {
-        // Permission + role management. adminGuard (client) +
-        // eternal.web.admin (server) both gate it.
         path: 'admin/permissions',
-        canActivate: [adminGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.admin' },
         loadComponent: () => import('./pages/admin/permissions.component').then(m => m.PermissionsComponent)
       },
       {
-        // User management — search all known players (offline incl.),
-        // edit per-user permission overrides, change CloudNet rank.
         path: 'admin/users',
-        canActivate: [adminGuard],
+        canActivate: [permGuard], data: { perm: 'eternal.web.admin' },
         loadComponent: () => import('./pages/admin/admin-users.component').then(m => m.AdminUsersComponent)
+      },
+      {
+        path: 'admin/permission-requests',
+        canActivate: [permGuard], data: { perm: 'eternal.web.admin' },
+        loadComponent: () => import('./pages/admin/permission-requests.component').then(m => m.PermissionRequestsComponent)
       }
     ]
   },

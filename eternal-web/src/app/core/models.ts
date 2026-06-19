@@ -131,8 +131,11 @@ export interface StaffStat {
 
 export interface Me {
   name: string;
-  role: 'ADMIN' | 'MOD' | 'PLAYER';
   uuid: string | null;
+  /** Effective permission keys (eternal.web.*, eternal.ban, …). Resolved
+   *  server-side from the user's CloudNet role grants incl. wildcards, so an
+   *  Owner with `*` gets every key. The UI gates purely on this. */
+  permissions: string[];
 }
 
 export interface ReportPage {
@@ -169,7 +172,7 @@ export interface LinkInit {
 export interface LinkStatus {
   status: 'PENDING' | 'CONFIRMED' | 'EXPIRED' | 'CONSUMED';
   sessionToken?: string;
-  user?: { uuid: string; name: string; role: 'ADMIN' | 'MOD' };
+  user?: { uuid: string; name: string };
   expiresAt?: number;
 }
 
@@ -217,4 +220,33 @@ export interface AdminUser {
   tier: number;
   lastSeen: number;
   resolvedRole: string;
+}
+
+/* --- self-service access requests ---------------------------------- */
+
+/** A self-service access request. Times are epoch millis. */
+export interface PermissionRequest {
+  id: number;
+  requesterUuid: string;
+  requesterName: string;
+  permissionKey: string;
+  justification: string | null;
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED';
+  createdAt: number;
+  decidedByUuid: string | null;
+  decidedByName: string | null;
+  decidedAt: number | null;
+  decisionNote: string | null;
+  expiresAt: number | null;
+}
+
+/** A catalogue entry on the order page: a registry permission plus whether the
+ *  user already holds it (`held`) or already has a pending request (`pending`). */
+export interface RequestablePermission {
+  key: string;
+  label: string;
+  description: string;
+  category: string;
+  held: boolean;
+  pending: boolean;
 }

@@ -9,7 +9,10 @@ import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
 type Row = {
   userUuid: string;
   userName: string;
-  role: 'ADMIN' | 'MOD' | 'PLAYER';
+  /** Permission-derived (has eternal.web.dashboard) — splits Staff vs Players. */
+  staff: boolean;
+  /** Real CloudNet rank (e.g. Owner), shown on the chip. */
+  group?: string;
   createdAt: number;
   expiresAt: number;
   lastDisplayName?: string;
@@ -45,7 +48,7 @@ type Row = {
                class="flex items-center gap-3 py-2 border-b border-ink-700/30 last:border-b-0">
             <img [src]="head(r.userUuid)" class="w-8 h-8 rounded" alt="head" />
             <span class="font-medium" [innerHTML]="(r.lastDisplayName || r.userName) | legacy"></span>
-            <span [class]="roleChipClass(r.role)">{{ r.role }}</span>
+            <span *ngIf="r.group" class="text-xs px-2 py-0.5 rounded font-medium bg-ink-700/50 text-ink-200">{{ r.group }}</span>
             <span class="flex-1"></span>
             <span class="text-ink-300 text-xs font-mono">seit {{ r.createdAt | date:fmt }}</span>
           </div>
@@ -80,8 +83,8 @@ export class ActiveUsersComponent {
   /** Same EU short pattern as the rest of the dashboard. */
   readonly fmt = 'yyyy-MM-dd HH:mm';
 
-  readonly staff   = computed(() => this.rows().filter(r => r.role !== 'PLAYER'));
-  readonly players = computed(() => this.rows().filter(r => r.role === 'PLAYER'));
+  readonly staff   = computed(() => this.rows().filter(r => r.staff));
+  readonly players = computed(() => this.rows().filter(r => !r.staff));
 
   constructor() {
     this.api.adminActiveSessions().subscribe({
@@ -92,12 +95,5 @@ export class ActiveUsersComponent {
 
   head(uuid: string) {
     return `https://mc-heads.net/avatar/${uuid.replace(/-/g, '')}/32`;
-  }
-
-  roleChipClass(role: string) {
-    const base = 'text-xs px-2 py-0.5 rounded font-medium';
-    if (role === 'ADMIN') return `${base} bg-red-900/40 text-red-300`;
-    if (role === 'MOD')   return `${base} bg-eternal-900/40 text-eternal-300`;
-    return `${base} bg-ink-700/40 text-ink-300`;
   }
 }

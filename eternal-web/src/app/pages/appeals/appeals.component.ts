@@ -56,13 +56,13 @@ import { AppealShortenDialogComponent, AppealShortenDialogData, AppealShortenRes
           <!-- Annehmen + Ablehnen brauchen Admin-Rolle (volles Entbannen
                bzw. abschliessende Ablehnung). Verkuerzen darf jeder Staff
                ohne eternal.modify.duration-Perm. -->
-          <button mat-flat-button color="primary" *ngIf="auth.isAdmin()" (click)="approve(a)">
+          <button mat-flat-button color="primary" *ngIf="auth.hasPerm('eternal.web.appeals.decide')" (click)="approve(a)">
             <mat-icon>check</mat-icon> Genehmigen + Entbannen
           </button>
           <button mat-flat-button class="!bg-cyan-700" (click)="shorten(a)">
             <mat-icon>schedule</mat-icon> Verkürzen
           </button>
-          <button mat-stroked-button color="warn" *ngIf="auth.isAdmin()" (click)="deny(a)">
+          <button mat-stroked-button color="warn" *ngIf="auth.hasPerm('eternal.web.appeals.decide')" (click)="deny(a)">
             <mat-icon>close</mat-icon> Ablehnen
           </button>
         </div>
@@ -184,7 +184,7 @@ export class AppealsComponent implements OnInit {
   }
 
   subtitle() {
-    return this.auth.isAdmin()
+    return this.auth.hasPerm('eternal.web.appeals.decide')
         ? 'Bearbeite Antraege oder schau dir die History an.'
         : 'Alle eingegangenen Antraege.';
   }

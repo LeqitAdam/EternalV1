@@ -129,8 +129,14 @@ export class LoginComponent implements OnDestroy {
         next: status => {
           if (status.status === 'CONFIRMED' && status.sessionToken && status.user) {
             this.poll?.unsubscribe();
-            this.auth.loginWith(status.sessionToken, status.user);
-            this.router.navigateByUrl('/');
+            // Link response only identifies the user — fetch /me for the
+            // effective permission list the UI gates on.
+            const token = status.sessionToken;
+            this.auth.loginWith(token, { name: status.user.name, uuid: status.user.uuid, permissions: [] });
+            this.api.me().subscribe({
+              next: me => { this.auth.loginWith(token, me); this.router.navigateByUrl('/'); },
+              error: () => { this.auth.logout(); this.error.set('Session ungültig.'); }
+            });
           } else if (status.status === 'EXPIRED') {
             this.poll?.unsubscribe();
             this.error.set('Code abgelaufen — bitte einen neuen generieren.');
@@ -155,7 +161,7 @@ export class LoginComponent implements OnDestroy {
     this.loading.set(true);
     this.apiKeyError.set(null);
     // Use the API key as a session token directly. /me will validate.
-    this.auth.loginWith(this.apiKey, { name: '...', role: 'MOD', uuid: null });
+    this.auth.loginWith(this.apiKey, { name: '...', uuid: null, permissions: [] });
     this.api.me().subscribe({
       next: me => {
         this.auth.loginWith(this.apiKey, me);
