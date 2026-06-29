@@ -77,6 +77,15 @@ public interface EternalStorage extends AutoCloseable {
 
     @NotNull Optional<PunishmentEntry> findActivePunishment(@NotNull UUID target, @NotNull PunishmentType type);
 
+    /**
+     * Resolve a target by name from the punishments table — the most recent
+     * punishment (any type/state) whose target name matches case-insensitively.
+     * Covers players who have a punishment on record but NO profile row (e.g.
+     * banned before ever accepting the privacy policy, so the profile was never
+     * stored), which is why {@code /unban <name>} could not find them.
+     */
+    @NotNull Optional<PunishmentEntry> findRecentPunishmentByName(@NotNull String name);
+
     @NotNull List<PunishmentEntry> findPunishmentHistory(@NotNull UUID target, @Nullable PunishmentType type);
 
     /**
@@ -108,6 +117,10 @@ public interface EternalStorage extends AutoCloseable {
 
     /** Sibling to {@link #resetPunishmentHistory} that wipes reports too. */
     int resetReportHistory(@NotNull UUID target, boolean hard);
+
+    /** Deletes the player's unban appeals. Appeals carry no hidden flag, so this
+     *  is always a hard delete — run alongside the history reset. */
+    int resetAppealHistory(@NotNull UUID target);
 
     @NotNull List<PunishmentEntry> findAllActive(@NotNull PunishmentType type);
 

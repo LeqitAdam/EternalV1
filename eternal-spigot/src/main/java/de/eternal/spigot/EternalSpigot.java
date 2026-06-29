@@ -25,9 +25,16 @@ import de.eternal.spigot.listener.ConnectionListener;
 import de.eternal.spigot.report.BungeeChannelBridge;
 // ReportActions/ReportListGui/ReportGuiListener wurden entfernt — Staff-Side komplett im Dashboard.
 import de.eternal.core.base.BaseStorage;
+import de.eternal.core.config.AutonickerConfig;
 import de.eternal.core.config.Configs;
+import de.eternal.core.social.SocialStorage;
+import de.eternal.spigot.command.AutonickCommand;
 import de.eternal.spigot.listener.BaseListener;
+import de.eternal.spigot.listener.NickItemListener;
+import de.eternal.spigot.nick.NickBridge;
+import de.eternal.spigot.nick.NickService;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.command.TabCompleter;
@@ -79,6 +86,14 @@ public final class EternalSpigot extends JavaPlugin {
     private ConnectionListener connectionListener;
     private de.eternal.spigot.chatlog.ChatLogWriter chatLogWriter;
 
+    // --- autonicker (merged from the old standalone EternalAutonicker plugin) ---
+    private AutonickerConfig autonickerConfig;
+    private NickService nickService;
+    private NickBridge nickBridge;
+    private NamespacedKey nickTagKey;
+    private de.eternal.core.maintenance.LogCleanupConfig logCleanupConfig;
+    private org.bukkit.scheduler.BukkitTask logCleanupTask;
+
     // --- base system (teleport, gamemode, fly, homes/warps/spawn, /sign, ...) ---
     private Sessions baseSessions;
     private int baseMaxHomes = 3;
@@ -95,6 +110,7 @@ public final class EternalSpigot extends JavaPlugin {
             registerCommands();
             VanillaCommandOverride.apply(this);
             registerListeners();
+            startLogCleanup();
             getLogger().info("Eternal aktiv (storage=" + coreConfig.database().type()
                     + ", lang=" + currentLanguage() + ", cloudperms="
                     + (cloudPerms.available() ? "ja" : "nein") + ")");
@@ -105,8 +121,20 @@ public final class EternalSpigot extends JavaPlugin {
         }
     }
 
+    /** Periodic deletion of old server log files (logs/*.log.gz). The task reads
+     *  the current config each run, so /eternal reload toggling works. */
+    private void startLogCleanup() {
+        if (logCleanupTask != null) { logCleanupTask.cancel(); logCleanupTask = null; }
+        if (!logCleanupConfig.enabled()) return;
+        long periodTicks = Math.max(1L, logCleanupConfig.intervalMinutes()) * 60L * 20L;
+        this.logCleanupTask = getServer().getScheduler().runTaskTimerAsynchronously(this,
+                () -> de.eternal.core.maintenance.LogCleanup.sweep(logCleanupConfig, getLogger()),
+                20L * 10, periodTicks); // first run after ~10s, then every interval
+    }
+
     @Override
     public void onDisable() {
+        if (logCleanupTask != null) { logCleanupTask.cancel(); logCleanupTask = null; }
         if (actionPoller != null) actionPoller.stop();
         // Flush any queued chat-log entries to DB + files before the storage
         // connection is closed below.
@@ -121,6 +149,7 @@ public final class EternalSpigot extends JavaPlugin {
 
     public void reloadEverything() {
         loadEverything();
+        startLogCleanup(); // pick up enabled/interval changes
     }
 
     /* ----------------------------------------------------------------- */
@@ -131,6 +160,8 @@ public final class EternalSpigot extends JavaPlugin {
         Files.createDirectories(getDataFolder().toPath());
         if (!new File(getDataFolder(), "config.yml").exists()) saveResource("config.yml", false);
         if (!new File(getDataFolder(), "reasons.yml").exists()) saveResource("reasons.yml", false);
+        // 10k-Namen-Pool fuer den Autonicker (ein Name pro Zeile).
+        if (!new File(getDataFolder(), "names.txt").exists()) saveResource("names.txt", false);
 
         File trDir = new File(getDataFolder(), "translations");
         Files.createDirectories(trDir.toPath());
@@ -163,6 +194,18 @@ public final class EternalSpigot extends JavaPlugin {
 
         this.currentLanguage = String.valueOf(cfgMap.getOrDefault("language", "de")).toLowerCase();
         this.messages = loadTranslation(currentLanguage);
+
+        // Log-Cleanup config (deletes old server log files). Re-read on reload.
+        this.logCleanupConfig = de.eternal.core.maintenance.LogCleanupConfig.fromMap(
+                Configs.sectionOr(cfgMap, "log-cleanup"));
+
+        // Autonicker config (merged module). Re-read on /eternal reload.
+        // The 10k-name pool lives in names.txt; when present it overrides the
+        // (small) name-pool from config.yml.
+        Map<String, Object> autoSec = new LinkedHashMap<>(Configs.sectionOr(cfgMap, "autonicker"));
+        java.util.List<String> nickNames = readNickNames();
+        if (!nickNames.isEmpty()) autoSec.put("name-pool", nickNames);
+        this.autonickerConfig = AutonickerConfig.fromMap(autoSec);
 
         // Base-system config (homes/warps/tpa). Re-read on /eternal reload.
         Map<String, Object> baseSec = Configs.sectionOr(cfgMap, "base");
@@ -218,6 +261,17 @@ public final class EternalSpigot extends JavaPlugin {
             // start on the backend where the reportee is online, not
             // wherever the moderator happens to be when accepting later.
             new de.eternal.spigot.report.CaptureReplayRequestListener(this);
+
+            // --- autonicker (merged) — nick state + network bridge ---
+            this.nickTagKey = new NamespacedKey(this, "autonick_tag");
+            this.nickBridge = new NickBridge(this); // registers the eternal:nick channel
+            this.nickService = new NickService(this);
+            // In network mode the proxy owns sessions; locally, clear any stale
+            // session row left by a crash (the disguise is runtime-only anyway).
+            if (!autonickerConfig.network()) restoreDanglingNickSessions();
+            if (autonickerConfig.enabled() && autonickerConfig.giveTagOnJoin()) {
+                getServer().getOnlinePlayers().forEach(p -> nickService.giveTag(p));
+            }
         }
 
         // ApiBridge wird auch beim /eternal reload neu erzeugt — sonst klebt
@@ -236,6 +290,24 @@ public final class EternalSpigot extends JavaPlugin {
         if (actionPoller == null) {
             this.actionPoller = new ActionPoller(this);
             this.actionPoller.start();
+        }
+    }
+
+    /** Reads the autonicker name pool from {@code names.txt} (one name per line,
+     *  {@code #} comments + blanks ignored). Empty list when the file is absent. */
+    private java.util.List<String> readNickNames() {
+        File f = new File(getDataFolder(), "names.txt");
+        if (!f.exists()) return java.util.List.of();
+        try {
+            java.util.List<String> out = new java.util.ArrayList<>();
+            for (String line : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
+                String s = line.trim();
+                if (!s.isEmpty() && !s.startsWith("#")) out.add(s);
+            }
+            return out;
+        } catch (IOException ex) {
+            getLogger().warning("names.txt konnte nicht gelesen werden: " + ex.getMessage());
+            return java.util.List.of();
         }
     }
 
@@ -292,7 +364,10 @@ public final class EternalSpigot extends JavaPlugin {
     /* Wiring                                                             */
     /* ----------------------------------------------------------------- */
 
+    private de.eternal.spigot.command.EternalTabCompleter tabCompleter;
+
     private void registerCommands() {
+        this.tabCompleter = new de.eternal.spigot.command.EternalTabCompleter(this);
         bind("ban", new BanCommand(this));
         bind("unban", new UnbanCommand(this));
         bind("mute", new MuteCommand(this));
@@ -308,6 +383,7 @@ public final class EternalSpigot extends JavaPlugin {
         bind("resethistory", new de.eternal.spigot.command.ResetHistoryCommand(this));
         bind("modify", new de.eternal.spigot.command.ModifyCommand(this));
         bind("eternal", new EternalCommand(this));
+        bind("autonick", new AutonickCommand(this));
         registerBaseCommands();
     }
 
@@ -335,6 +411,7 @@ public final class EternalSpigot extends JavaPlugin {
         PluginCommand cmd = Objects.requireNonNull(getCommand(name), "Command " + name + " nicht in plugin.yml");
         cmd.setExecutor(exec);
         if (exec instanceof org.bukkit.command.TabCompleter tc) cmd.setTabCompleter(tc);
+        else cmd.setTabCompleter(tabCompleter);
     }
 
     private void bindBase(@NotNull CommandExecutor exec, @NotNull String... names) {
@@ -346,6 +423,7 @@ public final class EternalSpigot extends JavaPlugin {
             }
             cmd.setExecutor(exec);
             if (exec instanceof TabCompleter tc) cmd.setTabCompleter(tc);
+            else cmd.setTabCompleter(tabCompleter);
         }
     }
 
@@ -374,6 +452,24 @@ public final class EternalSpigot extends JavaPlugin {
         // Chat-log capture (MONITOR): public chat + commands -> ChatLogWriter.
         getServer().getPluginManager().registerEvents(
                 new de.eternal.spigot.chatlog.ChatLogListener(this), this);
+        // Autonicker (merged): nametag item give/toggle/lock + quit cleanup.
+        getServer().getPluginManager().registerEvents(new NickItemListener(this), this);
+    }
+
+    /** Standalone-mode startup cleanup: a leftover nick session means a crash
+     *  interrupted a nick. The disguise (profile rewrite + scoreboard team) is
+     *  runtime-only and already gone after the restart, and it never changed the
+     *  real CloudNet group — so we only drop the stale row. */
+    private void restoreDanglingNickSessions() {
+        SocialStorage social = (SocialStorage) storage;
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            int n = 0;
+            for (var s : social.activeNickSessions()) {
+                social.endNickSession(s.uuid());
+                n++;
+            }
+            if (n > 0) getLogger().info("Autonicker: " + n + " haengende Nick-Session(s) zurueckgesetzt.");
+        });
     }
 
     /* ----------------------------------------------------------------- */
@@ -402,6 +498,12 @@ public final class EternalSpigot extends JavaPlugin {
     public @NotNull ConnectionListener connectionListener() { return connectionListener; }
     /** Async batched chat-log writer + outgoing eternal:socialspy helper. */
     public @NotNull de.eternal.spigot.chatlog.ChatLogWriter chatLogWriter() { return chatLogWriter; }
+
+    /* --- autonicker accessors ---------------------------------------- */
+    public @NotNull AutonickerConfig autonicker() { return autonickerConfig; }
+    public @NotNull NickService nickService() { return nickService; }
+    public @NotNull NickBridge nickBridge() { return nickBridge; }
+    public @NotNull NamespacedKey nickTagKey() { return nickTagKey; }
 
     /* --- base system accessors --------------------------------------- */
     public @NotNull Sessions sessions() { return baseSessions; }

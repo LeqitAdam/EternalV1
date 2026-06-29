@@ -251,6 +251,51 @@
           "Web-Dashboard ngx-translate für Live-Wechsel",
           "Chat-Color-Codes (&-Style) komplett übersetzbar"
         ]
+      },
+      "autonick": {
+        "title": "Autonicker",
+        "items": [
+          "Zufälliger Name + echter Mojang-Skin",
+          "Eigener Skin live (Paper setPlayerProfile, kein Reconnect)",
+          "Fake-Rang in Tab/Nametag (CloudNet) — echte Perms bleiben (Stealth)",
+          "Netzwerkweit, vom Proxy gesteuert",
+          "Namensschild-Item + /autonick, Team-Permission",
+          "10.000 Namen-Pool (names.txt), frei anpassbar",
+          "Genickte Spieler im Dashboard + /playerinfo sichtbar"
+        ]
+      },
+      "party": {
+        "title": "Party & Freunde",
+        "items": [
+          "Party erstellen, einladen, kicken, verlassen",
+          "Cross-Server Party-Chat",
+          "Freundesliste + Anfragen",
+          "Party- & Freunde-GUI (Kopf-Item)",
+          "Nick-aware: Fake-Namen einladbar",
+          "Einladungs-Einstellungen pro Spieler"
+        ]
+      },
+      "baseSystem": {
+        "title": "Basis-System",
+        "items": [
+          "Teleport: /tp, /tpa, /tphere, /back, /top",
+          "Homes & Warps, Spawn",
+          "Gamemode, Fly, Speed, God, Heal, Feed",
+          "Vanish, Hat, Repair, More, Sign, Enderchest, Werkbank, Invsee",
+          "Zeit & Wetter",
+          "Broadcast, /msg + /reply, Kill"
+        ]
+      },
+      "chatlog": {
+        "title": "Chat-Logs & Social-Spy",
+        "items": [
+          "Netzwerkweite Chat-Logs (DB + pro-Server-Dateien)",
+          "Command-Logging",
+          "Social-Spy: /msg netzwerkweit mitlesen",
+          "Report-Kontext (Nachrichten rund um eine Meldung)",
+          "Sensible Befehle (Login/Register) geschützt",
+          "Im Web-Dashboard durchsuchbar"
+        ]
       }
     }
   },
@@ -281,6 +326,10 @@
       "web": {
         "title": "eternal-web",
         "body": "Angular 17 Dashboard. Material + Tailwind, dynamisches Rollen-System aus CloudNet-Gruppen."
+      },
+      "party": {
+        "title": "eternal-party",
+        "body": "Party + Freunde + Basis-System (Homes/Warps/Teleport), Spigot + Proxy."
       }
     }
   },

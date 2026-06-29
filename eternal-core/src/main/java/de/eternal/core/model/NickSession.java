@@ -7,13 +7,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Persisted "this player is currently nicked" record. Written BEFORE the
- * destructive CloudNet {@code setPrimaryGroup} call so a crash mid-nick is
- * recoverable: on startup the autonicker restores every active session's
- * original group/name. {@code skinValue}/{@code skinSignature} are the raw
- * Mojang texture property of the fake skin (nullable when skin spoofing is
- * disabled or unavailable). {@code originalGroup} is empty when CloudNet was
- * absent at nick time (nothing to restore).
+ * Persisted "this player is currently nicked" record. The disguise is purely
+ * visual (a reflective {@code GameProfile} rewrite + a scoreboard team prefix);
+ * it never changes the player's real CloudNet group, so a nicked player keeps
+ * their own permissions. This row exists to restore the original name + skin on
+ * unnick and to clear stale runtime state on startup. {@code skinValue}/
+ * {@code skinSignature} are the raw Mojang texture property of the fake skin
+ * (nullable when skin spoofing is unavailable). {@code originalGroup} and
+ * {@code nickGroup} are diagnostics only (the real group is never mutated).
  */
 public record NickSession(
         @NotNull UUID uuid,

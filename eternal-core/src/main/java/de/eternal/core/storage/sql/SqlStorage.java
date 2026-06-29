@@ -64,22 +64,41 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
         this.config = config;
     }
 
+    private boolean isH2() {
+        return config.type() == DatabaseConfig.Type.H2;
+    }
+
+    /** Both the embedded H2 (MySQL-compat mode) and real MySQL use MySQL SQL
+     *  syntax, so the dialect branches below all take the "MySQL" path. Kept as
+     *  a helper so a future third dialect has one place to hook in. */
     private boolean isSqlite() {
-        return config.type() == DatabaseConfig.Type.SQLITE;
+        return false;
+    }
+
+    /** Only real MySQL has FULLTEXT indexes + MATCH/AGAINST. The embedded H2
+     *  (even in MySQL mode) does not, so chat-log search falls back to LIKE. */
+    private boolean supportsFulltext() {
+        return config.type() == DatabaseConfig.Type.MYSQL;
     }
 
     @Override
     public void init() {
         HikariConfig hc = new HikariConfig();
-        if (isSqlite()) {
+        if (isH2()) {
             try {
-                Files.createDirectories(config.sqliteFile().getParent());
+                Files.createDirectories(config.embeddedFile().getParent());
             } catch (Exception ex) {
-                throw new StorageException("Could not create data folder for SQLite", ex);
+                throw new StorageException("Could not create data folder for the embedded H2 DB", ex);
             }
-            hc.setJdbcUrl("jdbc:sqlite:" + config.sqliteFile().toAbsolutePath());
-            hc.setDriverClassName("org.sqlite.JDBC");
-            hc.setMaximumPoolSize(1);
+            // MODE=MySQL → H2 accepts the same SQL as the network MySQL path.
+            // DATABASE_TO_LOWER + CASE_INSENSITIVE_IDENTIFIERS mirror MySQL's
+            // lower-cased, case-insensitive identifiers.
+            hc.setJdbcUrl("jdbc:h2:file:" + config.embeddedFile().toAbsolutePath()
+                    + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;AUTO_RECONNECT=TRUE");
+            hc.setDriverClassName("org.h2.Driver");
+            hc.setUsername("sa");
+            hc.setPassword("");
+            hc.setMaximumPoolSize(Math.max(1, config.poolSize()));
         } else {
             hc.setJdbcUrl("jdbc:mysql://" + config.host() + ":" + config.port() + "/" + config.database()
                     + "?useSSL=false&useUnicode=true&characterEncoding=utf8");
@@ -844,6 +863,20 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
     }
 
     @Override
+    public @NotNull Optional<PunishmentEntry> findRecentPunishmentByName(@NotNull String name) {
+        String sql = "SELECT * FROM eternal_punishments WHERE LOWER(target_name) = LOWER(?) "
+                + "ORDER BY issued_at DESC LIMIT 1";
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readPunishment(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findRecentPunishmentByName failed", ex);
+        }
+    }
+
+    @Override
     public @NotNull List<PunishmentEntry> findPunishmentHistory(@NotNull UUID target, @Nullable PunishmentType type) {
         String sql = type == null
                 ? "SELECT * FROM eternal_punishments WHERE target_uuid = ? AND hidden = 0 ORDER BY issued_at DESC"
@@ -1118,6 +1151,17 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             return ps.executeUpdate();
         } catch (SQLException ex) {
             throw new StorageException("resetReportHistory failed", ex);
+        }
+    }
+
+    @Override
+    public int resetAppealHistory(@NotNull UUID target) {
+        try (Connection c = conn(); PreparedStatement ps = c.prepareStatement(
+                "DELETE FROM eternal_unban_appeals WHERE applicant_uuid = ?")) {
+            ps.setString(1, target.toString());
+            return ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new StorageException("resetAppealHistory failed", ex);
         }
     }
 
@@ -3274,6 +3318,21 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
     }
 
     @Override
+    public @NotNull Optional<NickSession> findNickSessionByNickName(@NotNull String nickName) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT * FROM eternal_nick_sessions WHERE LOWER(nick_name) = LOWER(?) "
+                             + "ORDER BY started_at DESC LIMIT 1")) {
+            ps.setString(1, nickName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(readNickSession(rs)) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new StorageException("findNickSessionByNickName failed", ex);
+        }
+    }
+
+    @Override
     public boolean endNickSession(@NotNull UUID uuid) {
         try (Connection c = conn();
              PreparedStatement ps = c.prepareStatement("DELETE FROM eternal_nick_sessions WHERE uuid = ?")) {
@@ -3634,9 +3693,9 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
                     )""").formatted(idStr));
         }
 
-        // FULLTEXT search is MySQL-only; add it idempotently (separate
-        // try/catch via runIdempotent) so re-runs and SQLite are no-ops.
-        if (!isSqlite()) {
+        // FULLTEXT search is real-MySQL-only; add it idempotently so re-runs and
+        // the embedded H2 (no FULLTEXT support) are no-ops.
+        if (supportsFulltext()) {
             runIdempotent(c, "ALTER TABLE eternal_chat_log ADD FULLTEXT idx_chatlog_fts (sender_name, target_name, content)");
             runIdempotent(c, "ALTER TABLE eternal_sensitive_log ADD FULLTEXT idx_senslog_fts (sender_name, content)");
         }
@@ -3745,7 +3804,7 @@ public final class SqlStorage implements EternalStorage, PermissionStorage, Soci
             params.add(toMs);
         }
         if (query != null && !query.isBlank()) {
-            if (isSqlite()) {
+            if (!supportsFulltext()) {
                 String like = "%" + query.toLowerCase() + "%";
                 if (sensitive) {
                     clauses.add("(LOWER(sender_name) LIKE ? OR LOWER(content) LIKE ?)");

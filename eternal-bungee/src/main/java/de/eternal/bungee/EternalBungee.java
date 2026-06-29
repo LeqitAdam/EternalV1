@@ -1,7 +1,10 @@
 package de.eternal.bungee;
 
+import de.eternal.core.config.AutonickerConfig;
+import de.eternal.core.config.Configs;
 import de.eternal.core.config.CoreConfig;
 import de.eternal.core.config.ReasonsConfig;
+import de.eternal.core.social.SocialStorage;
 import de.eternal.core.service.PunishmentService;
 import de.eternal.core.service.ReportService;
 import de.eternal.core.staff.OnlineStaffRegistry;
@@ -12,6 +15,7 @@ import de.eternal.bungee.command.BanCommand;
 import de.eternal.bungee.command.EternalCommand;
 import de.eternal.bungee.command.HistoryCommand;
 import de.eternal.bungee.command.LookupCommand;
+import de.eternal.bungee.command.PlayerInfoCommand;
 import de.eternal.bungee.command.ModifyCommand;
 import de.eternal.bungee.command.MuteCommand;
 import de.eternal.bungee.command.ResetHistoryCommand;
@@ -50,6 +54,10 @@ public final class EternalBungee extends Plugin {
     private de.eternal.bungee.listener.CloudNetBridgeListener cloudNetBridge;
     private de.eternal.bungee.api.AdminActionPoller adminActionPoller;
     private de.eternal.bungee.listener.SocialSpyListener socialSpyListener;
+    private AutonickerConfig autonickerConfig;
+    private de.eternal.bungee.nick.NickProxyService nickProxyService;
+    private de.eternal.core.maintenance.LogCleanupConfig logCleanupConfig;
+    private net.md_5.bungee.api.scheduler.ScheduledTask logCleanupTask;
 
     @Override
     public void onEnable() {
@@ -82,6 +90,18 @@ public final class EternalBungee extends Plugin {
             // changes (works for offline players — CN store is central).
             this.adminActionPoller = new de.eternal.bungee.api.AdminActionPoller(this);
             this.adminActionPoller.start();
+            startLogCleanup();
+            // Autonicker network mode: the proxy owns nick state and pushes the
+            // disguise (name + skin + rank prefix) to each backend, so it works
+            // network-wide and survives server switches. Only active when the
+            // merged autonicker is enabled AND configured for network mode.
+            if (autonickerConfig.enabled() && autonickerConfig.network()) {
+                this.nickProxyService = new de.eternal.bungee.nick.NickProxyService(this);
+                getProxy().getPluginManager().registerListener(this,
+                        new de.eternal.bungee.nick.NickProxyListener(this, nickProxyService));
+                clearDanglingNickSessions();
+                getLogger().info("Autonicker-Netzwerkmodus aktiv (Proxy verwaltet Nicks).");
+            }
             getLogger().info("Eternal aktiv (storage=" + coreConfig.database().type() + ").");
         } catch (Exception ex) {
             getLogger().severe("Eternal konnte nicht starten: " + ex.getMessage());
@@ -89,8 +109,20 @@ public final class EternalBungee extends Plugin {
         }
     }
 
+    /** Periodic deletion of old proxy log files. Reads the current config each
+     *  run so a reload toggling works. */
+    private void startLogCleanup() {
+        if (logCleanupTask != null) { logCleanupTask.cancel(); logCleanupTask = null; }
+        if (!logCleanupConfig.enabled()) return;
+        int periodSec = Math.max(1, logCleanupConfig.intervalMinutes()) * 60;
+        this.logCleanupTask = getProxy().getScheduler().schedule(this,
+                () -> de.eternal.core.maintenance.LogCleanup.sweep(logCleanupConfig, getLogger()),
+                10, periodSec, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
     @Override
     public void onDisable() {
+        if (logCleanupTask != null) { logCleanupTask.cancel(); logCleanupTask = null; }
         if (adminActionPoller != null) adminActionPoller.stop();
         if (socialSpyListener != null) socialSpyListener.stop();
         if (storage != null) {
@@ -100,6 +132,7 @@ public final class EternalBungee extends Plugin {
 
     public void reloadEverything() {
         loadEverything();
+        startLogCleanup(); // pick up enabled/interval changes
     }
 
     private static final String[] BUNDLED_TRANSLATIONS = {"de", "en"};
@@ -108,6 +141,7 @@ public final class EternalBungee extends Plugin {
         Files.createDirectories(getDataFolder().toPath());
         copyIfMissing("config.yml");
         copyIfMissing("reasons.yml");
+        copyIfMissing("names.txt"); // 10k Autonicker-Namen-Pool
 
         File trDir = new File(getDataFolder(), "translations");
         Files.createDirectories(trDir.toPath());
@@ -151,6 +185,17 @@ public final class EternalBungee extends Plugin {
         if (!trFile.exists()) trFile = new File(getDataFolder(), "translations/de.yml");
         Map<String, Object> messagesMap = trFile.exists() ? readYaml(trFile) : new LinkedHashMap<>();
         this.messages = new BungeeMessages(messagesMap);
+
+        // Log-Cleanup config (deletes old proxy log files). Re-read on reload.
+        this.logCleanupConfig = de.eternal.core.maintenance.LogCleanupConfig.fromMap(
+                Configs.sectionOr(cfg, "log-cleanup"));
+
+        // Autonicker config (merged module). Re-read on /eternal reload.
+        // names.txt (10k pool) overrides the small config.yml name-pool when present.
+        Map<String, Object> autoSec = new LinkedHashMap<>(Configs.sectionOr(cfg, "autonicker"));
+        List<String> nickNames = readNickNames();
+        if (!nickNames.isEmpty()) autoSec.put("name-pool", nickNames);
+        this.autonickerConfig = AutonickerConfig.fromMap(autoSec);
 
         if (storage == null) {
             this.storage = new SqlStorage(coreConfig.database());
@@ -202,6 +247,7 @@ public final class EternalBungee extends Plugin {
         // behaelt die Versionen als Fallback fuer Single-Server-Setups,
         // Bungee greift hier zuerst und gewinnt.
         pm.registerCommand(this, new LookupCommand(this));
+        pm.registerCommand(this, new PlayerInfoCommand(this));
         pm.registerCommand(this, new HistoryCommand(this));
         pm.registerCommand(this, new ModifyCommand(this));
         pm.registerCommand(this, new ResetHistoryCommand(this));
@@ -209,6 +255,24 @@ public final class EternalBungee extends Plugin {
         // /reportsystem ist BEWUSST nicht auf Bungee registriert: dann
         // reicht der Proxy das Kommando an den Backend-Spigot weiter, dessen
         // GUI sich oeffnen kann. Bungee koennte keine Chest-GUI anzeigen.
+    }
+
+    /** Reads the autonicker name pool from {@code names.txt} (one per line,
+     *  {@code #} comments + blanks ignored). Empty when the file is absent. */
+    private List<String> readNickNames() {
+        File f = new File(getDataFolder(), "names.txt");
+        if (!f.exists()) return List.of();
+        try {
+            List<String> out = new ArrayList<>();
+            for (String line : Files.readAllLines(f.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                String s = line.trim();
+                if (!s.isEmpty() && !s.startsWith("#")) out.add(s);
+            }
+            return out;
+        } catch (IOException ex) {
+            getLogger().warning("names.txt konnte nicht gelesen werden: " + ex.getMessage());
+            return List.of();
+        }
     }
 
     private Map<String, Object> readYaml(@NotNull File file) {
@@ -245,4 +309,27 @@ public final class EternalBungee extends Plugin {
     public @NotNull OnlineStaffRegistry staff() { return staff; }
     public @NotNull ApiBridge apiBridge() { return apiBridge; }
     public @NotNull de.eternal.core.integration.CloudPermsAccess cloudPerms() { return cloudPerms; }
+    public @NotNull AutonickerConfig autonicker() { return autonickerConfig; }
+    /** Nullable — only set in network mode. */
+    public de.eternal.bungee.nick.@org.jetbrains.annotations.Nullable NickProxyService nickProxy() { return nickProxyService; }
+
+    /** Network-mode startup cleanup: drop any nick-session rows left over from
+     *  a crash/restart. Network nicks are session-scoped (cleared on disconnect),
+     *  so a stale row on boot is always dead state — and the disguise never
+     *  changed the real CloudNet group, so nothing else needs restoring. */
+    private void clearDanglingNickSessions() {
+        SocialStorage social = (SocialStorage) storage;
+        getProxy().getScheduler().runAsync(this, () -> {
+            int n = 0;
+            for (var s : social.activeNickSessions()) {
+                // Strip the leftover Doppelrang group (the rolled rank) from a crash.
+                if (!s.nickGroup().isEmpty() && cloudPerms.available()) {
+                    cloudPerms.removeGroup(s.uuid(), s.nickGroup());
+                }
+                social.endNickSession(s.uuid());
+                n++;
+            }
+            if (n > 0) getLogger().info("Autonicker: " + n + " haengende Nick-Session(s) zurueckgesetzt.");
+        });
+    }
 }

@@ -251,6 +251,51 @@
           "Web dashboard ngx-translate for live switching",
           "Chat colour codes (&-style) fully translatable"
         ]
+      },
+      "autonick": {
+        "title": "Autonicker",
+        "items": [
+          "Random name + real Mojang skin",
+          "Your own skin live (Paper setPlayerProfile, no reconnect)",
+          "Fake rank in tab/nametag (CloudNet) — real perms kept (stealth)",
+          "Network-wide, proxy-driven",
+          "Name-tag item + /autonick, team permission",
+          "10,000-name pool (names.txt), fully editable",
+          "Nicked players visible in the dashboard + /playerinfo"
+        ]
+      },
+      "party": {
+        "title": "Party & Friends",
+        "items": [
+          "Create, invite, kick, leave a party",
+          "Cross-server party chat",
+          "Friend list + requests",
+          "Party & friends GUI (head item)",
+          "Nick-aware: invite by fake name",
+          "Per-player invite settings"
+        ]
+      },
+      "baseSystem": {
+        "title": "Base System",
+        "items": [
+          "Teleport: /tp, /tpa, /tphere, /back, /top",
+          "Homes & warps, spawn",
+          "Gamemode, fly, speed, god, heal, feed",
+          "Vanish, hat, repair, more, sign, enderchest, workbench, invsee",
+          "Time & weather",
+          "Broadcast, /msg + /reply, kill"
+        ]
+      },
+      "chatlog": {
+        "title": "Chat Logs & Social-Spy",
+        "items": [
+          "Network-wide chat logs (DB + per-server files)",
+          "Command logging",
+          "Social-spy: read /msg network-wide",
+          "Report context (messages around a report)",
+          "Sensitive commands (login/register) protected",
+          "Searchable in the web dashboard"
+        ]
       }
     }
   },
@@ -281,6 +326,10 @@
       "web": {
         "title": "eternal-web",
         "body": "Angular 17 dashboard. Material + Tailwind, dynamic role system from CloudNet groups."
+      },
+      "party": {
+        "title": "eternal-party",
+        "body": "Party + friends + base system (homes/warps/teleport), Spigot + proxy."
       }
     }
   },

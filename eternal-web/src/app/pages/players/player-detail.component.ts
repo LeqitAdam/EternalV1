@@ -4,11 +4,14 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatButtonModule } from '@angular/material/button';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { ChatSession, ChatSessionDay, PlayerLookup, Punishment, Report, UnbanAppeal } from '../../core/models';
 import { LegacyTextPipe } from '../../shared/legacy-text.pipe';
 import { ChatTranscriptComponent } from '../../shared/chat-transcript/chat-transcript.component';
+import { TextPromptDialogComponent, TextPromptDialogData } from '../../shared/text-prompt-dialog/text-prompt-dialog.component';
 
 /** EU date format that matches the in-game pattern (yyyy-MM-dd HH:mm). */
 const EU_DATE_FORMAT = 'yyyy-MM-dd HH:mm';
@@ -40,7 +43,7 @@ type HistoryRow = {
 @Component({
   selector: 'et-player-detail',
   standalone: true,
-  imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, RouterLink, LegacyTextPipe, ChatTranscriptComponent],
+  imports: [CommonModule, DatePipe, MatCardModule, MatIconModule, MatProgressSpinnerModule, MatButtonModule, MatSnackBarModule, MatDialogModule, RouterLink, LegacyTextPipe, ChatTranscriptComponent],
   template: `
     <button mat-stroked-button routerLink="/players" class="mb-4">
       <mat-icon>arrow_back</mat-icon> Zur Suche
@@ -56,7 +59,14 @@ type HistoryRow = {
           <div class="flex-1">
             <!-- Show the rank-coloured DisplayName from CloudNet-Chat when
                  we have one; fall back to the plain name otherwise. -->
-            <h1 class="text-3xl font-bold" [innerHTML]="(d.profile.lastDisplayName || d.profile.name) | legacy"></h1>
+            <div class="flex items-center gap-3 flex-wrap">
+              <h1 class="text-3xl font-bold" [innerHTML]="(d.profile.lastDisplayName || d.profile.name) | legacy"></h1>
+              <span *ngIf="d.nicked"
+                    class="text-xs px-2 py-0.5 rounded font-medium bg-purple-900/40 text-purple-300 flex items-center gap-1">
+                <mat-icon class="!text-sm !w-4 !h-4">theater_comedy</mat-icon>
+                genickt<span *ngIf="d.nickName"> als &nbsp;<span class="font-mono">{{ d.nickName }}</span></span>
+              </span>
+            </div>
             <div class="text-ink-300 text-sm font-mono">{{ d.profile.uuid }}</div>
             <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div><span class="text-ink-300">Rang:</span> <span class="text-eternal-300 ml-2">{{ d.profile.lastGroupName || '—' }}</span></div>
@@ -68,17 +78,27 @@ type HistoryRow = {
         </div>
 
         <div *ngIf="d.activeBan || d.activeMute" class="mt-4 space-y-2">
-          <div *ngIf="d.activeBan" class="p-3 bg-red-900/30 border border-red-700/40 rounded">
-            <strong class="text-red-300">Aktiver Bann #{{ d.activeBan.id }}</strong>:
-            {{ d.activeBan.reasonLabel }}
-            <span *ngIf="d.activeBan.expiresAt; else perm">
-              <span class="font-mono"> bis {{ d.activeBan.expiresAt | date:fmt }}</span>
-            </span>
-            <ng-template #perm><span class="font-medium"> · permanent</span></ng-template>
+          <div *ngIf="d.activeBan" class="p-3 bg-red-900/30 border border-red-700/40 rounded flex items-start gap-3">
+            <div class="flex-1">
+              <strong class="text-red-300">Aktiver Bann #{{ d.activeBan.id }}</strong>:
+              {{ d.activeBan.reasonLabel }}
+              <span *ngIf="d.activeBan.expiresAt; else perm">
+                <span class="font-mono"> bis {{ d.activeBan.expiresAt | date:fmt }}</span>
+              </span>
+              <ng-template #perm><span class="font-medium"> · permanent</span></ng-template>
+            </div>
+            <button mat-stroked-button color="warn" [disabled]="busy()" (click)="pardon(d.activeBan)">
+              <mat-icon>gavel</mat-icon> Entbannen
+            </button>
           </div>
-          <div *ngIf="d.activeMute" class="p-3 bg-orange-900/30 border border-orange-700/40 rounded">
-            <strong class="text-orange-300">Aktiver Mute #{{ d.activeMute.id }}</strong>:
-            {{ d.activeMute.reasonLabel }}
+          <div *ngIf="d.activeMute" class="p-3 bg-orange-900/30 border border-orange-700/40 rounded flex items-start gap-3">
+            <div class="flex-1">
+              <strong class="text-orange-300">Aktiver Mute #{{ d.activeMute.id }}</strong>:
+              {{ d.activeMute.reasonLabel }}
+            </div>
+            <button mat-stroked-button color="warn" [disabled]="busy()" (click)="pardon(d.activeMute)">
+              <mat-icon>volume_up</mat-icon> Entmuten
+            </button>
           </div>
         </div>
       </mat-card>
@@ -226,9 +246,13 @@ export class PlayerDetailComponent implements OnChanges {
   @Input() name!: string;
 
   private readonly api = inject(ApiService);
+  private readonly dialog = inject(MatDialog);
+  private readonly snack = inject(MatSnackBar);
   readonly data = signal<PlayerLookup | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  /** Guards the pardon buttons against double-submits. */
+  readonly busy = signal(false);
 
   /* --- chat-verlauf --- */
   readonly chatSessions = signal<ChatSessionDay[]>([]);
@@ -252,6 +276,39 @@ export class PlayerDetailComponent implements OnChanges {
     this.api.playerChatSessions(this.name).subscribe({
       next: days => { this.chatSessions.set(days ?? []); this.chatLoading.set(false); },
       error: () => { this.chatSessions.set([]); this.chatLoading.set(false); }
+    });
+  }
+
+  /** Pardon an active ban or mute straight from the player view. Prompts for a
+   *  reason, calls the same DELETE /bans/{id} endpoint the bans page uses, then
+   *  reloads the player so the active-punishment box + history update. */
+  pardon(p: Punishment) {
+    const noun = p.type === 'BAN' ? 'Bann' : 'Mute';
+    const verb = p.type === 'BAN' ? 'Entbannen' : 'Entmuten';
+    const data: TextPromptDialogData = {
+      title: `${noun} #${p.id} aufheben`,
+      label: `Grund (${p.targetName})`,
+      placeholder: 'z.B. "Antrag genehmigt" oder "Falsch bestraft"',
+      confirmText: verb,
+      confirmColor: 'warn',
+      multiline: true
+    };
+    this.dialog.open<TextPromptDialogComponent, TextPromptDialogData, string>(
+      TextPromptDialogComponent, { data }
+    ).afterClosed().subscribe(reason => {
+      if (!reason) return;
+      this.busy.set(true);
+      this.api.pardon(p.id, reason).subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.snack.open(`${noun} #${p.id} aufgehoben`, 'OK', { duration: 2500 });
+          if (this.name) this.api.playerLookup(this.name).subscribe({ next: d => this.data.set(d) });
+        },
+        error: e => {
+          this.busy.set(false);
+          this.snack.open(`Fehler: ${e.error?.error ?? e.message}`, 'OK', { duration: 4000 });
+        }
+      });
     });
   }
 

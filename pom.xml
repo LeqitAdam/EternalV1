@@ -21,7 +21,7 @@
         <module>eternal-api</module>
         <module>eternal-replay</module>
         <module>eternal-party</module>
-        <module>eternal-autonicker</module>
+        <module>eternal-lobby</module>
     </modules>
 
     <properties>
@@ -31,7 +31,10 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <hikaricp.version>5.1.0</hikaricp.version>
-        <sqlite.version>3.45.3.0</sqlite.version>
+        <!-- H2 (pure Java, ~2.5 MB) ersetzt sqlite-jdbc (~12 MB native libs) als
+             eingebettete DB. Spart ~10 MB pro shaded Jar. H2 laeuft im MySQL-Mode
+             → selber SQL-Pfad wie die Netzwerk-MySQL. -->
+        <h2.version>2.2.224</h2.version>
         <mysql.version>8.4.0</mysql.version>
         <gson.version>2.11.0</gson.version>
         <slf4j.version>2.0.13</slf4j.version>
@@ -72,9 +75,9 @@
                 <version>${hikaricp.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.xerial</groupId>
-                <artifactId>sqlite-jdbc</artifactId>
-                <version>${sqlite.version}</version>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${h2.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.mysql</groupId>

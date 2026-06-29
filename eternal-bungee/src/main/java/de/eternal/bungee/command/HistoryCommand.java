@@ -30,7 +30,7 @@ import java.util.UUID;
  * Bungee {@code /history} — DKBans-style detail cards. Same shape as the
  * Spigot version; lives here so a single proxy restart deploys it everywhere.
  */
-public final class HistoryCommand extends Command {
+public final class HistoryCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     private static final DateTimeFormatter DATE = DateTimeFormatter
             .ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
@@ -263,5 +263,9 @@ public final class HistoryCommand extends Command {
                     r.reasonLabel(), r.reporterName(), r.reporterUuid(),
                     null, null, null, banId, null, null, null, r.replayId());
         }
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

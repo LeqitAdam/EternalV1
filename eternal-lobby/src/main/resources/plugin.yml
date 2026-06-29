@@ -1,0 +1,38 @@
+name: EternalLobby
+version: ${project.version}
+main: de.eternal.lobby.EternalLobby
+api-version: '1.19'
+author: Eternal
+description: Lobby — Navigator, Cosmetics (Trails/Boots), Double-Jump, Schutz.
+
+commands:
+  lobby:
+    description: Teleport zum Lobby-Spawn.
+    usage: /lobby
+    aliases: [hub, spawn]
+    permission: eternal.lobby.use
+  setlobbyspawn:
+    description: Setzt den Lobby-Spawn auf deine Position.
+    usage: /setlobbyspawn
+    permission: eternal.lobby.admin
+  navigator:
+    description: Oeffnet den Navigator.
+    usage: /navigator
+    aliases: [nav, compass]
+    permission: eternal.lobby.use
+  cosmetics:
+    description: Oeffnet das Cosmetics-Menue.
+    usage: /cosmetics
+    aliases: [cosmetic, boots]
+    permission: eternal.lobby.use
+
+permissions:
+  eternal.lobby.use:
+    description: Darf Lobby-Features nutzen (Navigator, Cosmetics).
+    default: true
+  eternal.lobby.admin:
+    description: Darf den Lobby-Spawn setzen + verwalten.
+    default: op
+  eternal.lobby.bypass:
+    description: Umgeht den Lobby-Schutz (Bauen, Schaden, ...).
+    default: op

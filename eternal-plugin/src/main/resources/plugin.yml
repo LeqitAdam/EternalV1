@@ -51,6 +51,11 @@ commands:
   eternal:
     description: Verwaltung und Account-Link.
     usage: /eternal <reload|link <code>>
+  autonick:
+    description: Schaltet den Autonicker an/aus.
+    usage: /autonick [on|off]
+    aliases: [nick]
+    permission: eternal.autonick.use
   # --- base system (teleport, gamemode, fly, homes/warps/spawn, /sign, ...) ---
   tp:        { description: Teleport., usage: '/tp <Spieler> [Ziel]', permission: eternal.base.tp }
   tphere:    { description: Hol einen Spieler zu dir., usage: '/tphere <Spieler>', permission: eternal.base.tphere }
@@ -151,6 +156,9 @@ permissions:
   eternal.bypass:
     description: Umgeht den Tier-Schutz vollstaendig (z.B. fuer Owner).
     default: false
+  eternal.autonick.use:
+    description: Darf den Autonicker nutzen (Nick-Item + /autonick). Nur Team.
+    default: op
   # --- base system ---
   eternal.base.spawn: { default: true }
   eternal.base.home: { default: true }

@@ -29,12 +29,17 @@ public record AutonickerConfig(
         @NotNull List<String> namePool,
         @NotNull List<String> skinPool,
         @NotNull List<String> nickableGroups,
-        @NotNull List<String> protectedGroups
+        @NotNull List<String> protectedGroups,
+        boolean network,
+        boolean reconnectOnNick
 ) {
+    // Realistic, unremarkable player-style names — a disguise should look like a
+    // normal player, not "Enderman"/"Steve5". Edit name-pool in config.yml to taste.
     private static final List<String> DEFAULT_NAMES = List.of(
-            "Notch", "Steve", "Alex", "Herobrine", "Player", "Creeper",
-            "Enderman", "Spider", "Skeleton", "Zombie", "Phantom", "Wither",
-            "Blaze", "Ghast", "Slime", "Magma", "Strider", "Piglin");
+            "Leon", "Finn", "Luca", "Jonas", "Max", "Tim", "Ben", "Paul",
+            "Niklas", "Felix", "Julian", "Moritz", "Elias", "Noah", "David",
+            "Simon", "Jan", "Nico", "Lars", "Marvin", "Kevin", "Dennis",
+            "Robin", "Fabian", "Mats", "Jannik", "Erik", "Tom", "Liam", "Henri");
     private static final List<String> DEFAULT_SKINS = List.of(
             "Notch", "jeb_", "Dinnerbone", "Grumm", "Steve", "Alex");
     private static final List<String> DEFAULT_PROTECTED = List.of(
@@ -52,11 +57,19 @@ public record AutonickerConfig(
                 Configs.boolOr(raw, "randomize-rank", true),
                 Configs.boolOr(raw, "hide-rank-without-cloudnet", true),
                 Configs.stringOr(raw, "default-display", "&7{name}"),
-                Configs.boolOr(raw, "append-random-digits", true),
+                Configs.boolOr(raw, "append-random-digits", false),
                 lowerAll(Configs.stringListOr(raw, "name-pool", DEFAULT_NAMES), false),
                 Configs.stringListOr(raw, "skin-pool", DEFAULT_SKINS),
                 lowerAll(Configs.stringListOr(raw, "nickable-groups", List.of()), true),
-                lowerAll(Configs.stringListOr(raw, "protected-groups", DEFAULT_PROTECTED), true)
+                lowerAll(Configs.stringListOr(raw, "protected-groups", DEFAULT_PROTECTED), true),
+                // network=true → the BungeeCord proxy owns nick state and pushes
+                // the disguise to each backend (skin works network-wide + survives
+                // server switches). false → each Spigot server nicks locally.
+                Configs.boolOr(raw, "network", false),
+                // Fallback nur fuer NICHT-Paper-Backends MIT >=2 Servern: Lobby-
+                // Bounce-Reconnect fuer die Eigen-Sicht. Auf Paper unnoetig
+                // (setPlayerProfile refresht server-intern) → Standard aus.
+                Configs.boolOr(raw, "reconnect-on-nick", false)
         );
     }
 

@@ -318,3 +318,15 @@ kill-other: "{prefix}&7Killed &f{player}&7."
 vanish-self: "{prefix}&7Vanished&8: {state}&7."
 vanish-other: "{prefix}&f{player} &7vanished&8: {state}&7."
 date-format: "yyyy-MM-dd HH:mm"
+
+# === Autonicker ============================================================
+item-nametag-name: "&5Autonicker &8» &7Right-click"
+item-nametag-lore: |-
+  &7Toggle your nick on or off.
+  &7State&8: {state}
+nick-enabled: "{prefix}&aYou are now &f{name} &a(rank&8: &f{rank}&a)."
+nick-enabled-name-only: "{prefix}&aYou are now &f{name}&a."
+nick-disabled: "{prefix}&7Your nick was removed — you are &f{name} &7again."
+nick-no-cloudnet: "{prefix}&7No CloudNet — name + skin only, no rank."
+nick-failed: "{prefix}&cNicking failed. Please try again."
+nick-disabled-feature: "{prefix}&cThe autonicker is disabled."

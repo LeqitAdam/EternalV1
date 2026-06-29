@@ -20,9 +20,12 @@ final class Cmd {
         return null;
     }
 
-    /** Online player by exact name, or null after sending player-not-found. */
+    /** Online player by exact name, or null after sending player-not-found.
+     *  Falls back to the nick map so a disguised player can be targeted by the
+     *  fake name everyone sees (/msg, /tp, …). Same-server. */
     static @Nullable Player online(@NotNull EternalSpigot plugin, @NotNull CommandSender sender, @NotNull String name) {
         Player t = Bukkit.getPlayerExact(name);
+        if (t == null) t = plugin.nickService().playerByNickName(name);
         if (t == null) plugin.messages().send(sender, "player-not-found", "name", name);
         return t;
     }

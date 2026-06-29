@@ -322,6 +322,15 @@ public final class Routes {
         // Appeals lifecycle visible in the spieler-search so staff can see
         // what the player tried and how it was resolved.
         out.put("appeals", storage.findAppealsByApplicant(profile.uuid()));
+        // Autonicker: is the player currently disguised? + the fake name so staff
+        // can see "X ist genickt als Y" in the dashboard.
+        String nickName = "";
+        if (storage instanceof de.eternal.core.social.SocialStorage social) {
+            nickName = social.findNickSession(profile.uuid())
+                    .map(de.eternal.core.model.NickSession::nickName).orElse("");
+        }
+        out.put("nicked", !nickName.isEmpty());
+        out.put("nickName", nickName);
         out.put("displayNames", collectDisplayNames(history, reports, activeBan, activeMute));
         ctx.json(out);
     }
@@ -493,8 +502,36 @@ public final class Routes {
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("total", storage.countReports(statuses));
-        out.put("items", storage.findReports(statuses, limit, offset));
+        out.put("items", enrichReports(storage.findReports(statuses, limit, offset)));
         ctx.json(out);
+    }
+
+    /** Adds live nick info (nick name + nick rank + real rank) to each report
+     *  for the target + reporter, so the dashboard can show
+     *  "FakeRank FakeName (RealRank RealName)" for disguised players. Real names
+     *  stay in the report. One DB read for all active nicks. */
+    private java.util.List<com.google.gson.JsonObject> enrichReports(
+            @NotNull java.util.List<ReportEntry> reports) {
+        Map<java.util.UUID, de.eternal.core.model.NickSession> nicks = new java.util.HashMap<>();
+        if (storage instanceof de.eternal.core.social.SocialStorage s) {
+            for (var ns : s.activeNickSessions()) nicks.put(ns.uuid(), ns);
+        }
+        java.util.List<com.google.gson.JsonObject> outList = new java.util.ArrayList<>(reports.size());
+        for (ReportEntry r : reports) {
+            com.google.gson.JsonObject o = Json.GSON.toJsonTree(r).getAsJsonObject();
+            applyNick(o, "target", nicks.get(r.targetUuid()));
+            applyNick(o, "reporter", nicks.get(r.reporterUuid()));
+            outList.add(o);
+        }
+        return outList;
+    }
+
+    private void applyNick(@NotNull com.google.gson.JsonObject o, @NotNull String who,
+                           @org.jetbrains.annotations.Nullable de.eternal.core.model.NickSession ns) {
+        if (ns == null || ns.nickName().isEmpty()) return;
+        o.addProperty(who + "Nick", ns.nickName());
+        o.addProperty(who + "NickGroup", ns.nickGroup());
+        o.addProperty(who + "RealGroup", ns.originalGroup());
     }
 
     private int parseIntOr(String s, int fallback) {
@@ -505,7 +542,8 @@ public final class Routes {
     private void getReport(@NotNull Context ctx) {
         auth.requirePermission(ctx, "eternal.report.handle");
         long id = parseLong(ctx, "id");
-        ctx.json(storage.findReport(id).orElseThrow(NotFoundResponse::new));
+        var report = storage.findReport(id).orElseThrow(NotFoundResponse::new);
+        ctx.json(enrichReports(java.util.List.of(report)).get(0));
     }
 
     private void claimReport(@NotNull Context ctx) {

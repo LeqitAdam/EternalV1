@@ -1,0 +1,54 @@
+# Eternal Lobby — Konfiguration
+
+# Lobby-Spawn. Setze ihn bequem ingame mit /setlobbyspawn (wird hierher zurueck-
+# geschrieben). world leer = Spawn deaktiviert (kein Teleport beim Join).
+spawn:
+  world: ""
+  x: 0.5
+  y: 100.0
+  z: 0.5
+  yaw: 0.0
+  pitch: 0.0
+
+join:
+  teleport-spawn: true     # beim Join zum Spawn teleportieren
+  clear-inventory: true    # Inventar leeren + Lobby-Items geben
+  adventure: true          # Adventure-Mode setzen
+  heal: true               # volle Gesundheit + Hunger
+
+# Navigator (Kompass) — oeffnet ein GUI zur Server-Auswahl.
+navigator:
+  slot: 0                  # Hotbar-Slot (0-8)
+  material: COMPASS
+  name: "&b&lNavigator &7(Rechtsklick)"
+  gui-title: "&8» &bServer-Auswahl"
+  gui-rows: 3
+  # server = der BungeeCord-Servername (wie in config.yml des Proxys).
+  servers:
+    - { name: "&aBedWars",  material: RED_BED,    slot: 11, server: "bedwars",  lore: "&7Klicke zum Verbinden" }
+    - { name: "&bSkyWars",  material: FEATHER,    slot: 13, server: "skywars",  lore: "&7Klicke zum Verbinden" }
+    - { name: "&cKnockFFA", material: STICK,      slot: 15, server: "knockffa", lore: "&7Klicke zum Verbinden" }
+
+# Cosmetics-Menue (Boots/Trails = Partikel-Spur beim Laufen).
+cosmetics:
+  slot: 4
+  material: LEATHER_BOOTS
+  name: "&d&lCosmetics &7(Rechtsklick)"
+  gui-title: "&8» &dCosmetics"
+  gui-rows: 3
+
+# Doppelsprung: in der Luft nochmal springen = Schwung nach vorn/oben.
+double-jump:
+  enabled: true
+  forward: 1.0
+  up: 0.85
+
+# Lobby-Schutz (eternal.lobby.bypass umgeht alles).
+protection:
+  no-block-edit: true      # kein Bauen/Abbauen
+  no-damage: true          # kein Schaden
+  no-hunger: true          # kein Hunger
+  no-drop: true            # kein Item-Drop
+  no-pickup: true          # kein Item-Aufheben
+  no-weather: true         # immer klar
+  void-teleport: true      # bei Fall ins Void -> zurueck zum Spawn

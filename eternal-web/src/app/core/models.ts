@@ -39,6 +39,15 @@ export interface Report {
   claimedAt: number | null;
   closedAt: number | null;
   resolution: string | null;
+  /** Live nick info (set by the API when the player is currently nicked):
+   *  the fake name/rank shown to players, alongside the real name/rank.
+   *  Absent when the player isn't disguised. */
+  targetNick?: string;
+  targetNickGroup?: string;
+  targetRealGroup?: string;
+  reporterNick?: string;
+  reporterNickGroup?: string;
+  reporterRealGroup?: string;
   /** Frozen JSON snapshot of the report's chat context (ChatLogEntry[]),
    *  set once the +after window has been collected. Null while still
    *  pending. The web rarely reads this directly — use api.reportChat(). */
@@ -119,6 +128,10 @@ export interface PlayerLookup {
   activeMute: Punishment | null;
   history: Punishment[];
   reports: Report[];
+  /** True when the player currently has an active autonicker disguise. */
+  nicked: boolean;
+  /** The fake name the player is currently nicked as ("" when not nicked). */
+  nickName: string;
 }
 
 export interface StaffStat {

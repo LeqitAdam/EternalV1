@@ -49,10 +49,11 @@ public final class ResetHistoryCommand implements CommandExecutor {
             var target = maybe.get();
             int punishments = plugin.storage().resetPunishmentHistory(target.uuid(), hard);
             int reports = plugin.storage().resetReportHistory(target.uuid(), hard);
+            int appeals = plugin.storage().resetAppealHistory(target.uuid());
             Bukkit.getScheduler().runTask(plugin, () ->
                     plugin.messages().send(sender, "resethistory-success",
                             "target", target.name(),
-                            "count", punishments + reports,
+                            "count", punishments + reports + appeals,
                             "mode", hard ? "hard" : "soft"));
         });
         return true;

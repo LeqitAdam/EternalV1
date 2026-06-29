@@ -355,6 +355,18 @@ public final class CloudPermsAccess {
         }
     }
 
+    /** Add {@code group} to the user WITHOUT removing existing groups
+     *  ("Doppelrang"). Used by the autonicker to overlay a display-only rank
+     *  while the real group (and its perms) stay intact. */
+    public boolean addGroup(@NotNull UUID uuid, @NotNull String group) {
+        return mutateUserGroups(uuid, "addGroup", group);
+    }
+
+    /** Remove {@code group} from the user, leaving the others untouched. */
+    public boolean removeGroup(@NotNull UUID uuid, @NotNull String group) {
+        return mutateUserGroups(uuid, "removeGroup", group);
+    }
+
     /** Shared add/remove helper. {@code op} is "addGroup" or
      *  "removeGroup". Resolves the user, invokes the op, pushes the
      *  update back. */
@@ -420,6 +432,15 @@ public final class CloudPermsAccess {
         catch (NoSuchMethodException ex) { return null; }
     }
 
+    /** The {@code &}-colour code of a CloudNet group by name (e.g. "&c"), or ""
+     *  when unknown / CloudNet absent. Used to colour rank labels in /playerinfo. */
+    public @NotNull String groupColor(@NotNull String groupName) {
+        for (GroupInfo g : allGroups()) {
+            if (g.name().equalsIgnoreCase(groupName)) return g.color();
+        }
+        return "";
+    }
+
     public @NotNull List<String> groupsOf(@NotNull UUID uuid) {
         if (!available()) return Collections.emptyList();
         try {
@@ -466,7 +487,7 @@ public final class CloudPermsAccess {
             if (group == null) continue;
             String name = readGroupName(group);
             if (name == null || name.isEmpty()) continue;
-            out.add(new GroupInfo(name, readPotency(group), readGroupColor(group)));
+            out.add(new GroupInfo(name, readPotency(group), readGroupColor(group), readGroupPrefix(group)));
         }
         // Ascending sortId — lowest number is the highest rank, first.
         out.sort((a, b) -> Integer.compare(a.sortId(), b.sortId()));
@@ -476,9 +497,11 @@ public final class CloudPermsAccess {
     /** A CloudNet group surfaced to the dashboard. {@code color} is a
      *  Minecraft {@code &}-code derived from the group's colour/prefix,
      *  or empty when none could be read. */
-    public record GroupInfo(@NotNull String name, int sortId, @NotNull String color) {
-        /** Back-compat 2-arg constructor — colour defaults to empty. */
-        public GroupInfo(@NotNull String name, int sortId) { this(name, sortId, ""); }
+    public record GroupInfo(@NotNull String name, int sortId, @NotNull String color, @NotNull String prefix) {
+        /** Back-compat 2-arg constructor — colour + prefix default to empty. */
+        public GroupInfo(@NotNull String name, int sortId) { this(name, sortId, "", ""); }
+        /** Back-compat 3-arg constructor — prefix defaults to empty. */
+        public GroupInfo(@NotNull String name, int sortId, @NotNull String color) { this(name, sortId, color, ""); }
     }
 
     /** Pulls a usable &amp;-colour code off a CloudNet group. Tries the
@@ -508,6 +531,24 @@ public final class CloudPermsAccess {
                 if (last >= 0 && last + 1 < prefix.length()) {
                     char c = Character.toLowerCase(prefix.charAt(last + 1));
                     if ("0123456789abcdef".indexOf(c) >= 0) return "&" + c;
+                }
+            } catch (NoSuchMethodException ignored) {
+            } catch (Throwable ignored2) { /* try next */ }
+        }
+        return "";
+    }
+
+    /** The raw, {@code &}-coded chat/tab prefix of a CloudNet group, e.g.
+     *  "&4&lOwner ". Empty when the group has no prefix or it can't be read.
+     *  Unlike {@link #readGroupColor} this keeps the FULL prefix (text +
+     *  formatting), which the autonicker uses to disguise the tab rank. */
+    private static @NotNull String readGroupPrefix(@NotNull Object group) {
+        for (String mname : new String[]{"prefix", "getPrefix"}) {
+            try {
+                Object v = group.getClass().getMethod(mname).invoke(group);
+                if (v != null) {
+                    String s = String.valueOf(v);
+                    if (!s.isEmpty()) return s.replace('§', '&');
                 }
             } catch (NoSuchMethodException ignored) {
             } catch (Throwable ignored2) { /* try next */ }

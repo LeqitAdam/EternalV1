@@ -184,11 +184,11 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
         <!-- Tiny stat strip — anchors the title with three concrete numbers. -->
         <div class="grid grid-cols-3 gap-8 max-w-md mx-auto text-center">
           <div>
-            <div class="text-3xl font-bold text-eternal-300">6</div>
+            <div class="text-3xl font-bold text-eternal-300">7</div>
             <div class="text-xs text-ink-300">{{ 'hero.stats.modules' | translate }}</div>
           </div>
           <div>
-            <div class="text-3xl font-bold text-eternal-300">60+</div>
+            <div class="text-3xl font-bold text-eternal-300">90+</div>
             <div class="text-xs text-ink-300">{{ 'hero.stats.features' | translate }}</div>
           </div>
           <div>
@@ -408,10 +408,10 @@ export class LandingComponent implements OnInit {
   // need a separate model class.
   readonly highlightKeys = ['replay', 'reports', 'dashboard', 'permissions', 'gdpr', 'punishments'];
   readonly categoryKeys = [
-    'punishments', 'reports', 'replay', 'appeals',
-    'permissions', 'dashboard', 'gdpr', 'integration', 'i18n'
+    'punishments', 'reports', 'replay', 'appeals', 'permissions', 'dashboard',
+    'autonick', 'party', 'baseSystem', 'chatlog', 'gdpr', 'integration', 'i18n'
   ];
-  readonly moduleKeys = ['core', 'spigot', 'bungee', 'api', 'replay', 'web'];
+  readonly moduleKeys = ['core', 'spigot', 'bungee', 'api', 'replay', 'party', 'web'];
   readonly tierKeys = ['starter', 'pro', 'network'];
 
   /** Which highlight keys ship with a screenshot in src/assets/landing/.
@@ -489,7 +489,11 @@ export class LandingComponent implements OnInit {
       permissions: 'key',
       dashboard: 'dashboard',
       integration: 'extension',
-      i18n: 'translate'
+      i18n: 'translate',
+      autonick: 'theater_comedy',
+      party: 'group',
+      baseSystem: 'home',
+      chatlog: 'forum'
     };
     return map[key] ?? 'star';
   }

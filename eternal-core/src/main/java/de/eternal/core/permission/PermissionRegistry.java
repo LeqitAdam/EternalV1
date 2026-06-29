@@ -132,6 +132,10 @@ public final class PermissionRegistry {
         // Zugang zur Bestell-Seite — Admin vergibt ihn an die Team-Ränge.
         register("eternal.team", "team", "Teammitglied",
                 "Darf sich auf der Bestell-Seite Rechte anfragen.", DefaultGrant.STAFF_ANY);
+
+        // --- Autonicker ---
+        register("eternal.autonick.use", "autonick", "Nicken",
+                "Darf sich mit dem Autonicker tarnen (Nick-Item + /autonick).", DefaultGrant.STAFF_ANY);
     }
 
     /** Add a per-reason key — generated when {@code reasons.yml} is loaded.

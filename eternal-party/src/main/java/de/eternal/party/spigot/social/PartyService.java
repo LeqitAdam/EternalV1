@@ -163,12 +163,19 @@ public final class PartyService {
                 tName = online.getName();
             } else {
                 Optional<PlayerProfile> prof = plugin.profiles().findProfileByName(name);
-                if (prof.isEmpty()) {
-                    sync(() -> messages.send(inviter, "player-not-found"));
-                    return;
+                if (prof.isPresent()) {
+                    tu = prof.get().uuid();
+                    tName = prof.get().name();
+                } else {
+                    // Disguised player? resolve the fake nick name → real player.
+                    var ns = storage.findNickSessionByNickName(name);
+                    if (ns.isEmpty()) {
+                        sync(() -> messages.send(inviter, "player-not-found"));
+                        return;
+                    }
+                    tu = ns.get().uuid();
+                    tName = ns.get().originalName();
                 }
-                tu = prof.get().uuid();
-                tName = prof.get().name();
             }
             if (tu.equals(inviter.getUniqueId())) {
                 sync(() -> messages.send(inviter, "party-invite-accept-self"));
@@ -429,12 +436,19 @@ public final class PartyService {
                 tName = online.getName();
             } else {
                 Optional<PlayerProfile> prof = plugin.profiles().findProfileByName(name);
-                if (prof.isEmpty()) {
-                    sync(() -> messages.send(from, "friend-not-found", "name", name));
-                    return;
+                if (prof.isPresent()) {
+                    tu = prof.get().uuid();
+                    tName = prof.get().name();
+                } else {
+                    // Disguised player? resolve the fake nick name → real player.
+                    var ns = storage.findNickSessionByNickName(name);
+                    if (ns.isEmpty()) {
+                        sync(() -> messages.send(from, "friend-not-found", "name", name));
+                        return;
+                    }
+                    tu = ns.get().uuid();
+                    tName = ns.get().originalName();
                 }
-                tu = prof.get().uuid();
-                tName = prof.get().name();
             }
             if (tu.equals(from.getUniqueId())) {
                 sync(() -> messages.send(from, "friend-request-self"));

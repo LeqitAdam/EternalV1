@@ -31,7 +31,7 @@ import java.util.UUID;
  * storage so a single proxy restart picks up translation changes for the
  * whole cluster.
  */
-public final class LookupCommand extends Command {
+public final class LookupCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     private static final DateTimeFormatter DATE = DateTimeFormatter
             .ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
@@ -112,6 +112,12 @@ public final class LookupCommand extends Command {
                     "value", activeMute.map(m -> "#" + m.id() + " " + m.reasonLabel()
                             + (m.isPermanent() ? " (permanent)" : " (bis " + DATE.format(m.expiresAt()) + ")"))
                             .orElse(plugin.messages().get("none")));
+
+            // Nick-Status: nur anzeigen wenn der Spieler gerade genickt ist —
+            // damit Team checken kann, wer sich hinter welchem Fake-Namen versteckt.
+            ((de.eternal.core.social.SocialStorage) plugin.storage()).findNickSession(target.uuid())
+                    .ifPresent(ns -> plugin.messages().send(sender, "lookup-line",
+                            "key", "Genickt als", "value", "&d" + ns.nickName()));
 
             plugin.messages().send(sender, "lookup-history-header");
             if (hist.isEmpty()) {
@@ -198,5 +204,9 @@ public final class LookupCommand extends Command {
                 new Text(TextComponent.fromLegacyText(plugin.messages().format(
                         "hover-show-staff", "name", fallbackName)))));
         return c;
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

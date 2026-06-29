@@ -9,7 +9,7 @@ import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.plugin.Command;
 import org.jetbrains.annotations.NotNull;
 
-public final class BanCommand extends Command {
+public final class BanCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     private final EternalBungee plugin;
     private final PunishmentDispatch dispatch;
@@ -23,5 +23,9 @@ public final class BanCommand extends Command {
     @Override
     public void execute(@NotNull CommandSender sender, @NotNull String[] args) {
         dispatch.handle(sender, "usage-ban", args);
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

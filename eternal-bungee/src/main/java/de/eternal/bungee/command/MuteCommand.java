@@ -5,7 +5,7 @@ import net.md_5.bungee.api.CommandSender;
 import net.md_5.bungee.api.plugin.Command;
 import org.jetbrains.annotations.NotNull;
 
-public final class MuteCommand extends Command {
+public final class MuteCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     private final EternalBungee plugin;
     private final PunishmentDispatch dispatch;
@@ -19,5 +19,9 @@ public final class MuteCommand extends Command {
     @Override
     public void execute(@NotNull CommandSender sender, @NotNull String[] args) {
         dispatch.handle(sender, "usage-mute", args);
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

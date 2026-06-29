@@ -12,7 +12,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Arrays;
 import java.util.UUID;
 
-public final class UnmuteCommand extends Command {
+public final class UnmuteCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     private final EternalBungee plugin;
     private final TargetResolver resolver;
@@ -48,5 +48,9 @@ public final class UnmuteCommand extends Command {
             if (ok) plugin.messages().send(sender, "unmute-success", "target", target.name());
             else plugin.messages().send(sender, "unmute-not-muted", "target", target.name());
         });
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

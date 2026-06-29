@@ -16,7 +16,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public final class ReportCommand extends Command {
+public final class ReportCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     /** Matches the channel name registered in
      *  {@code ReportGuiRequestListener.CHANNEL} on the Spigot side. */
@@ -165,14 +165,25 @@ public final class ReportCommand extends Command {
 
     private void notifyStaff(@NotNull ReportEntry entry) {
         if (!plugin.coreConfig().reports().notifyOnlineStaff()) return;
+        // In-game: show the FAKE name of a nicked target so the disguise isn't
+        // leaked in chat. The DB keeps the real name (website shows both).
+        String shownTarget = entry.targetName();
+        if (plugin.storage() instanceof de.eternal.core.social.SocialStorage s) {
+            var ns = s.findNickSession(entry.targetUuid());
+            if (ns.isPresent() && !ns.get().nickName().isEmpty()) shownTarget = ns.get().nickName();
+        }
         String msg = plugin.messages().format("report-staff-notify",
                 "id", entry.id(),
-                "target", entry.targetName(),
+                "target", shownTarget,
                 "reason", entry.reasonLabel(),
                 "reporter", entry.reporterName());
         for (UUID u : plugin.staff().snapshot()) {
             ProxiedPlayer p = ProxyServer.getInstance().getPlayer(u);
             if (p != null) p.sendMessage(TextComponent.fromLegacyText(msg));
         }
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

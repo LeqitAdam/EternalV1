@@ -11,7 +11,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Arrays;
 import java.util.UUID;
 
-public final class UnbanCommand extends Command {
+public final class UnbanCommand extends Command implements net.md_5.bungee.api.plugin.TabExecutor {
 
     private final EternalBungee plugin;
     private final TargetResolver resolver;
@@ -61,5 +61,9 @@ public final class UnbanCommand extends Command {
             if (ok) plugin.messages().send(sender, "unban-success", "target", target.name());
             else plugin.messages().send(sender, "unban-not-banned", "target", target.name());
         });
+    }
+    @Override
+    public Iterable<String> onTabComplete(net.md_5.bungee.api.CommandSender sender, String[] args) {
+        return BungeeTab.players(plugin, args);
     }
 }

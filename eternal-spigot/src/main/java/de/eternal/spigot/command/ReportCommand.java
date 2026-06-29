@@ -152,9 +152,13 @@ public final class ReportCommand implements CommandExecutor {
         if (!plugin.coreConfig().reports().notifyOnlineStaff()) return;
         // Reports werden im Dashboard angenommen — die Chat-Notification
         // ist nur noch ein Hinweis, keine Action-Buttons mehr.
+        // In-game: show the FAKE name of a nicked target (don't leak the nick).
+        String shownTarget = entry.targetName();
+        String nick = plugin.nickService().nickNameOf(entry.targetUuid());
+        if (nick != null) shownTarget = nick;
         String legacy = plugin.messages().format("report-staff-notify",
                 "id", entry.id(),
-                "target", entry.targetName(),
+                "target", shownTarget,
                 "reason", entry.reasonLabel(),
                 "reporter", entry.reporterName());
         for (Player p : Bukkit.getOnlinePlayers()) {

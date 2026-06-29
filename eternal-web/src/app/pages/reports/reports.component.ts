@@ -60,10 +60,20 @@ const CHAT_REASONS = new Set(['chat-insult', 'chat-spam', 'advertising', 'werbun
               <span class="text-eternal-300 font-mono text-sm">#{{ r.id }}</span>
               <span [class]="statusClass(r)">{{ r.status }}</span>
             </div>
-            <div class="text-lg font-semibold">{{ r.targetName }}</div>
+            <div class="text-lg font-semibold">
+              <ng-container *ngIf="r.targetNick; else realTarget">
+                <span class="text-purple-300">{{ r.targetNickGroup }} {{ r.targetNick }}</span>
+                <span class="text-ink-400 text-sm font-normal"> ({{ r.targetRealGroup }} {{ r.targetName }})</span>
+              </ng-container>
+              <ng-template #realTarget>{{ r.targetName }}</ng-template>
+            </div>
             <div class="text-sm text-ink-300 mt-1">
               <span class="font-medium">{{ r.reasonLabel }}</span>
-              · gemeldet von {{ r.reporterName }}
+              · gemeldet von
+              <ng-container *ngIf="r.reporterNick; else realReporter">
+                <span class="text-purple-300">{{ r.reporterNick }}</span><span class="text-ink-400"> ({{ r.reporterName }})</span>
+              </ng-container>
+              <ng-template #realReporter>{{ r.reporterName }}</ng-template>
             </div>
             <div *ngIf="r.comment" class="text-sm text-ink-300/80 italic mt-2 line-clamp-2">
               "{{ r.comment }}"

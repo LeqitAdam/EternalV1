@@ -114,6 +114,11 @@ public interface SocialStorage {
 
     @NotNull Optional<NickSession> findNickSession(@NotNull UUID uuid);
 
+    /** Find the active nick session whose FAKE name matches (case-insensitive) —
+     *  lets staff resolve a disguised player by the name they can see, so
+     *  /lookup, /history, /ban etc. work on the real player behind the nick. */
+    @NotNull Optional<NickSession> findNickSessionByNickName(@NotNull String nickName);
+
     boolean endNickSession(@NotNull UUID uuid);
 
     /** Every currently-active nick session — used to restore originals after
